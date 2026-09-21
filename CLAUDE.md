@@ -55,6 +55,15 @@ The platform must stay flexible so **any external system or new module can be in
 5. **Events out.** Important state changes (driver approved, parking availability changed, order status changed) should be emitted as domain events so outbound webhooks or push notifications can subscribe without touching the module that raised them.
 6. **Config over code.** Statuses, thresholds (e.g. parking "Limited"), fare rules, required documents live in config/DB where the business is likely to change them.
 
+## Ride module spec (confirmed by the user 2026-09-21, defaults noted)
+- **Fare:** per category (economy/comfort/xl): base + per-km + per-minute, with a minimum fare and a cancellation fee, all in PKR whole rupees, stored in `fare_configs` and editable through admin endpoints. Seeded values are placeholders the business must set. Cash only. Final fare is computed at completion from the distance actually driven and the real duration.
+- **Matching:** on request, offer the ride to the nearest N (default 5) online, approved drivers of the requested category within a radius (default 3 km); the first to accept wins (atomic update on the ride). If nobody accepts, the radius grows on a timer; the request expires after ~2 minutes.
+- **Lifecycle:** `requested -> accepted -> arrived -> started -> completed`, or `cancelled` / `expired`. One active ride per passenger and per driver. Passenger cancelling after a grace period (default 120 s from accept) or after the driver arrived pays the category's cancellation fee (recorded, collected manually since cash).
+- **Realtime:** Socket.IO gateway (JWT in the handshake) for offers, ride updates and driver location; every action also exists as REST so the app can poll. Live driver locations sit in Postgres/PostGIS behind a `DriverLocationStore` adapter; Redis can replace it later without touching ride logic.
+- **Routing/ETA:** behind a `RoutingProvider` adapter. Now a straight-line estimate with a detour factor; swap in Google Directions when a key exists.
+- **Ratings:** both directions, 1-5 stars + optional comment, one per rater per ride.
+- Sub-milestones: B1 fares + estimate, B2 driver presence + nearby, B3 request/offers/accept + expiry sweeper, B4 lifecycle + fare calculation + distance tracking, B5 ratings + history + admin rides, B6 Socket.IO, B7 push (FCM).
+
 ## Phases (single developer estimates)
 0. Setup: NestJS + Prisma + local Postgres/PostGIS, `/health`, Swagger, `.env`, API contract (~3-4 days)
 1. Foundation: OTP login, JWT, roles, profile, Become a Driver + vehicle/document upload to Supabase Storage, admin approval endpoints (~2 weeks)
@@ -110,7 +119,7 @@ All routes are under `/api/v1`, Swagger at `/docs`.
   - Users: `POST/DELETE users/me/avatar` (JPEG/PNG/WebP, 2 MB, returned as a signed `avatarUrl`), `DELETE users/me` (account deletion required by the stores: anonymises the row, erases driver profile/documents/avatar, frees the phone; admins cannot self-delete). `JwtStrategy` accepts only `status = active`.
   - Drivers: `DELETE drivers/me/vehicles/:id` (never the only vehicle).
   - **API keys** for external systems: `POST/GET admin/api-keys`, `POST admin/api-keys/:id/revoke` (super_admin only). Key format `fzl_<8hex>_<secret>`, shown once, only a SHA-256 hash stored, scopes like `parking:write` / `orders:*` / `*`, optional expiry. Protect integration routes with `@UseGuards(ApiKeyGuard)` + `@Scopes('x:read')` and header `x-api-key`; import `ApiKeysModule`. `GET integrations/ping` (scope `ping:read`) is the reference route.
-- Migrations are generated against local Postgres (needs a shadow DB): `DATABASE_URL=postgresql://mc@localhost:5432/fazl DIRECT_URL=<same> DATABASE_SSL_CA= npx prisma migrate dev --name x`, then `npx prisma migrate deploy` uses `.env` (Supabase).
+- **Migrations now run straight against Supabase**: `npx prisma migrate dev --name x` (uses `SHADOW_DATABASE_URL`, the scratch database `fazl_shadow` created on Supabase once). Local Postgres has no PostGIS and is no longer used for migrations; treat Supabase as the dev DB. **PostGIS 3.3 is enabled** (migration `enable_postgis`, schema `extensions`, on the default search_path so `ST_*` works through the pooler). Geography columns are declared as `Unsupported("geography(Point,4326)")` in the Prisma schema and queried with `$queryRaw`.
 - Agreed build order (user): accounts (done) -> **ride booking** -> parking -> order tracking (FAZL integration). Ride business rules must be confirmed with the user before coding (Section 32): fare rules, cancellation, matching, timeouts, categories, commission, cashout.
 
 ## Not built yet
