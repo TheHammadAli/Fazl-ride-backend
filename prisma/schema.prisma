@@ -444,3 +444,127 @@ model DriverEarning {
   @@index([driverId, createdAt])
   @@map("driver_earnings")
 }
+
+// ---------------------------------------------------------------------------
+// Order tracking: follows an order placed in another system (FAZL APP) until it
+// is delivered. The other system pushes the data in through the API.
+// ---------------------------------------------------------------------------
+
+// The steps an order moves through. Editable by an admin (spec: "the exact status
+// structure should remain configurable"). `aliases` are the other system's own
+// names for the same step, so it can keep sending its codes.
+model OrderStatus {
+  key       String   @id
+  label     String
+  position  Int
+  terminal  Boolean  @default(false)
+  active    Boolean  @default(true)
+  aliases   String[]
+  updatedAt DateTime @updatedAt
+
+  orders TrackedOrder[]
+  events OrderStatusEvent[]
+
+  @@map("order_statuses")
+}
+
+model TrackedOrder {
+  id         String @id @default(uuid()) @db.Uuid
+  // Which system the order comes from, and its own id for it.
+  source     String @default("fazl")
+  externalId String
+
+  customerRef   String?
+  // Normalised phone of the customer, used to show the order in their History.
+  customerPhone String?
+
+  pickupAddress   String?
+  pickupLat       Float?
+  pickupLng       Float?
+  deliveryAddress String
+  deliveryLat     Float
+  deliveryLng     Float
+
+  statusKey String
+  status    OrderStatus @relation(fields: [statusKey], references: [key])
+
+  deliveryPersonId       String?
+  deliveryPersonName     String?
+  deliveryPersonPhone    String?
+  deliveryPersonPhotoUrl String?
+  deliveryPersonRating   Float?
+  vehicleType            String?
+  vehicleMake            String?
+  vehicleModel           String?
+  vehicleColor           String?
+  vehiclePlate           String?
+
+  // Last known position of the delivery person, and the other system's own ETA.
+  lastLat        Float?
+  lastLng        Float?
+  lastHeading    Float?
+  lastLocationAt DateTime?
+  etaSeconds     Int?
+
+  deliveredAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  events OrderStatusEvent[]
+  points OrderLocationPoint[]
+  tokens TrackingToken[]
+
+  @@unique([source, externalId])
+  @@index([customerPhone])
+  @@index([deliveryPersonId])
+  @@index([statusKey])
+  @@map("tracked_orders")
+}
+
+// The timeline: when each step was reached.
+model OrderStatusEvent {
+  id        String   @id @default(uuid()) @db.Uuid
+  orderId   String   @db.Uuid
+  statusKey String
+  at        DateTime
+  note      String?
+  createdAt DateTime @default(now())
+
+  order  TrackedOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status OrderStatus  @relation(fields: [statusKey], references: [key])
+
+  @@index([orderId, at])
+  @@map("order_status_events")
+}
+
+// A sampled trail of where the delivery went, for the admin's route view.
+model OrderLocationPoint {
+  id      String   @id @default(uuid()) @db.Uuid
+  orderId String   @db.Uuid
+  lat     Float
+  lng     Float
+  heading Float?
+  at      DateTime
+
+  order TrackedOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, at])
+  @@map("order_location_points")
+}
+
+// What lets the customer's app open ONE order without logging in. Only a hash is
+// stored; the token itself is shown once when the other system asks for it.
+model TrackingToken {
+  id         String    @id @default(uuid()) @db.Uuid
+  orderId    String    @db.Uuid
+  tokenHash  String    @unique
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  order TrackedOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("tracking_tokens")
+}
