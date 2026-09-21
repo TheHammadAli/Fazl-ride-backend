@@ -20,6 +20,7 @@ enum Role {
 enum UserStatus {
   active
   blocked
+  deleted
 }
 
 enum DriverStatus {
@@ -51,14 +52,15 @@ enum DocumentType {
 }
 
 model User {
-  id        String     @id @default(uuid()) @db.Uuid
-  phone     String     @unique
-  name      String?
-  email     String?    @unique
-  avatarUrl String?
-  status    UserStatus @default(active)
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  id            String     @id @default(uuid()) @db.Uuid
+  phone         String     @unique
+  name          String?
+  email         String?    @unique
+  avatarKey     String?
+  status        UserStatus @default(active)
+  blockedReason String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
 
   roles         UserRole[]
   refreshTokens RefreshToken[]
@@ -108,16 +110,17 @@ model RefreshToken {
 
 // "Become a Driver": created when a customer applies, approved by an admin.
 model DriverProfile {
-  id              String       @id @default(uuid()) @db.Uuid
-  userId          String       @unique @db.Uuid
-  cnic            String       @unique
-  licenseNumber   String
-  status          DriverStatus @default(pending)
-  rejectionReason String?
-  reviewedById    String?      @db.Uuid
-  reviewedAt      DateTime?
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
+  id               String       @id @default(uuid()) @db.Uuid
+  userId           String       @unique @db.Uuid
+  cnic             String       @unique
+  licenseNumber    String
+  status           DriverStatus @default(pending)
+  rejectionReason  String?
+  suspensionReason String?
+  reviewedById     String?      @db.Uuid
+  reviewedAt       DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
 
   user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   vehicles  Vehicle[]
@@ -167,4 +170,36 @@ model DriverDocument {
   @@index([driverProfileId])
   @@index([vehicleId])
   @@map("driver_documents")
+}
+
+// Credentials for external systems (FAZL app, parking sensors, partners).
+// Only a hash is stored; the plain key is shown once when it is created.
+model ApiKey {
+  id          String    @id @default(uuid()) @db.Uuid
+  name        String
+  prefix      String    @unique
+  keyHash     String    @unique
+  scopes      String[]
+  createdById String?   @db.Uuid
+  lastUsedAt  DateTime?
+  expiresAt   DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@map("api_keys")
+}
+
+// Who did what in the admin API (approvals, blocks, key management).
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  actorId    String?  @db.Uuid
+  action     String
+  targetType String
+  targetId   String
+  meta       Json?
+  createdAt  DateTime @default(now())
+
+  @@index([targetType, targetId])
+  @@index([actorId])
+  @@map("audit_logs")
 }
