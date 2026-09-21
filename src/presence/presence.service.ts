@@ -9,6 +9,7 @@ import {
   startOfBusinessDay,
   DEFAULT_TZ_OFFSET_MINUTES,
 } from '../common/time.js';
+import { CancellationsService } from '../cancellations/cancellations.service.js';
 import { DomainEvents } from '../events/domain-events.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { DriverLocationStore } from './driver-location.store.js';
@@ -23,6 +24,7 @@ export class PresenceService {
     private readonly prisma: PrismaService,
     private readonly store: DriverLocationStore,
     private readonly events: DomainEvents,
+    private readonly cancellations: CancellationsService,
     config: ConfigService,
   ) {
     this.tzOffset = Number(
@@ -31,6 +33,7 @@ export class PresenceService {
   }
 
   async goOnline(userId: string, dto: GoOnlineDto) {
+    await this.cancellations.assertNotBlocked(userId, 'driver');
     const profile = await this.prisma.driverProfile.findUnique({
       where: { userId },
       include: {
@@ -113,11 +116,19 @@ export class PresenceService {
   }
 
   // Online time inside today's business day, counting a still-open session up to now.
-  async onlineSecondsToday(userId: string, now = new Date()) {
-    const dayStart = startOfBusinessDay(now, this.tzOffset);
+  onlineSecondsToday(userId: string, now = new Date()) {
+    return this.onlineSecondsBetween(
+      userId,
+      startOfBusinessDay(now, this.tzOffset),
+      now,
+    );
+  }
+
+  // Online time inside [from, now]; used by the dashboard and the earnings periods.
+  async onlineSecondsBetween(userId: string, from: Date, now = new Date()) {
     const sessions = await this.prisma.driverSession.findMany({
-      where: { userId, OR: [{ endedAt: null }, { endedAt: { gt: dayStart } }] },
+      where: { userId, OR: [{ endedAt: null }, { endedAt: { gt: from } }] },
     });
-    return onlineSecondsSince(sessions, dayStart, now);
+    return onlineSecondsSince(sessions, from, now);
   }
 }
