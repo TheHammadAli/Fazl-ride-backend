@@ -10,14 +10,26 @@ export function trackerFor(req: {
   headers?: Record<string, unknown>;
   ip?: string;
 }): string {
-  const header = req.headers?.authorization;
+  const headers = req.headers ?? {};
+  const short = (value: string) =>
+    createHash('sha256').update(value).digest('hex').slice(0, 32);
+
+  const bearer = headers.authorization;
   if (
-    typeof header === 'string' &&
-    header.startsWith('Bearer ') &&
-    header.length > 20
+    typeof bearer === 'string' &&
+    bearer.startsWith('Bearer ') &&
+    bearer.length > 20
   ) {
-    return `token:${createHash('sha256').update(header).digest('hex').slice(0, 32)}`;
+    return `token:${short(bearer)}`;
   }
+  // An integration (FAZL's server) counts as itself, not as one shared IP address.
+  const apiKey = headers['x-api-key'];
+  if (typeof apiKey === 'string' && apiKey.length > 8)
+    return `apikey:${short(apiKey)}`;
+  // A customer watching one order counts per tracking link.
+  const tracking = headers['x-tracking-token'];
+  if (typeof tracking === 'string' && tracking.length > 8)
+    return `track:${short(tracking)}`;
   return `ip:${req.ip ?? 'unknown'}`;
 }
 
