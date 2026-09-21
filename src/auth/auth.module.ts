@@ -19,7 +19,7 @@ import { SmsProvider } from './sms/sms.provider.js';
       }),
     }),
   ],
-  exports: [PassportModule],
+  exports: [PassportModule, JwtModule],
   controllers: [AuthController],
   providers: [
     AuthService,
