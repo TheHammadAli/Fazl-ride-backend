@@ -123,6 +123,19 @@ export class UsersService {
       );
     }
 
+    const activeRide = await this.prisma.ride.findFirst({
+      where: {
+        status: { in: ['requested', 'accepted', 'arrived', 'started'] },
+        OR: [{ passengerId: userId }, { driverId: userId }],
+      },
+      select: { id: true },
+    });
+    if (activeRide) {
+      throw new ConflictException(
+        'Finish or cancel your current ride before deleting your account',
+      );
+    }
+
     const documents = await this.prisma.driverDocument.findMany({
       where: { driverProfile: { userId } },
       select: { storageKey: true },
