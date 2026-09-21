@@ -1,5 +1,6 @@
 import { Transform, Type } from 'class-transformer';
 import {
+  IsDefined,
   IsEnum,
   IsInt,
   IsString,
@@ -59,6 +60,7 @@ export class ApplyDriverDto {
   @MaxLength(30)
   licenseNumber: string;
 
+  @IsDefined()
   @ValidateNested()
   @Type(() => VehicleDto)
   vehicle: VehicleDto;
