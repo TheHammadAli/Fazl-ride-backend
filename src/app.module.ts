@@ -3,6 +3,8 @@ import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AdminModule } from './admin/admin.module.js';
+import { ApiKeysModule } from './api-keys/api-keys.module.js';
+import { AuditModule } from './audit/audit.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { validateEnv } from './config/env.validation.js';
 import { DriversModule } from './drivers/drivers.module.js';
@@ -17,6 +19,8 @@ import { UsersModule } from './users/users.module.js';
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 100 }]),
     PrismaModule,
     StorageModule,
+    AuditModule,
+    ApiKeysModule,
     AuthModule,
     UsersModule,
     DriversModule,
