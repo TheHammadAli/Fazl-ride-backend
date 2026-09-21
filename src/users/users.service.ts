@@ -9,6 +9,7 @@ import {
 import { randomUUID } from 'node:crypto';
 import { AuditService } from '../audit/audit.service.js';
 import { detectFileType } from '../common/file-type.js';
+import { ratingView } from '../rides/rating.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { StorageService } from '../storage/storage.service.js';
 import { UpdateUserDto } from './dto/update-user.dto.js';
@@ -41,6 +42,7 @@ export class UsersService {
       name: user.name,
       email: user.email,
       avatarUrl: await this.avatarUrl(user.avatarKey),
+      rating: ratingView(user.ratingSum, user.ratingCount),
       roles: user.roles.map((r) => r.role),
       driver: user.driverProfile
         ? {
