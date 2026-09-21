@@ -59,15 +59,22 @@ model User {
   avatarKey     String?
   status        UserStatus @default(active)
   blockedReason String?
+  // Sum and number of star ratings received, so the average is cheap to show on cards.
+  ratingSum     Int        @default(0)
+  ratingCount   Int        @default(0)
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 
   roles            UserRole[]
   refreshTokens    RefreshToken[]
   driverProfile    DriverProfile?
-  ridesAsPassenger Ride[]         @relation("RidePassenger")
-  ridesAsDriver    Ride[]         @relation("RideDriver")
+  ridesAsPassenger Ride[]             @relation("RidePassenger")
+  ridesAsDriver    Ride[]             @relation("RideDriver")
   rideOffers       RideOffer[]
+  cancellations    RideCancellation[]
+  ratingsGiven     RideRating[]       @relation("RatingRater")
+  ratingsReceived  RideRating[]       @relation("RatingRatee")
+  earnings         DriverEarning[]
 
   @@map("users")
 }
@@ -334,10 +341,13 @@ model Ride {
   cancelledAt DateTime?
   updatedAt   DateTime  @updatedAt
 
-  passenger User        @relation("RidePassenger", fields: [passengerId], references: [id])
-  driver    User?       @relation("RideDriver", fields: [driverId], references: [id])
-  vehicle   Vehicle?    @relation(fields: [vehicleId], references: [id])
-  offers    RideOffer[]
+  passenger       User               @relation("RidePassenger", fields: [passengerId], references: [id])
+  driver          User?              @relation("RideDriver", fields: [driverId], references: [id])
+  vehicle         Vehicle?           @relation(fields: [vehicleId], references: [id])
+  offers          RideOffer[]
+  ratings         RideRating[]
+  cancellationLog RideCancellation[]
+  earningEntries  DriverEarning[]
 
   @@index([passengerId, status])
   @@index([driverId, status])
@@ -363,4 +373,74 @@ model RideOffer {
   @@unique([rideId, driverId])
   @@index([driverId, status])
   @@map("ride_offers")
+}
+
+enum CancellationRole {
+  passenger
+  driver
+}
+
+// Every time someone backs out of a ride the other person was already waiting for.
+// Used for the cool-down rule (too many in a short time) and for statistics.
+model RideCancellation {
+  id         String           @id @default(uuid()) @db.Uuid
+  rideId     String           @db.Uuid
+  userId     String           @db.Uuid
+  role       CancellationRole
+  fromStatus RideStatus
+  reason     String?
+  // Set by an admin to wipe the slate; forgiven rows no longer count.
+  forgivenAt DateTime?
+  createdAt  DateTime         @default(now())
+
+  ride Ride @relation(fields: [rideId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, role, createdAt])
+  @@map("ride_cancellations")
+}
+
+// One rating from one person on a ride to the other person on it.
+model RideRating {
+  id        String   @id @default(uuid()) @db.Uuid
+  rideId    String   @db.Uuid
+  raterId   String   @db.Uuid
+  rateeId   String   @db.Uuid
+  stars     Int
+  comment   String?
+  createdAt DateTime @default(now())
+
+  ride  Ride @relation(fields: [rideId], references: [id], onDelete: Cascade)
+  rater User @relation("RatingRater", fields: [raterId], references: [id])
+  ratee User @relation("RatingRatee", fields: [rateeId], references: [id])
+
+  @@unique([rideId, raterId])
+  @@index([rateeId])
+  @@map("ride_ratings")
+}
+
+enum EarningType {
+  ride_fare
+  adjustment
+  cashout
+}
+
+// A driver's earnings ledger. Amounts are signed PKR. No commission is taken for
+// now, so a completed ride adds its full fare. `cashout` is reserved for when
+// wallets / online payments exist and is not shown in the app yet.
+model DriverEarning {
+  id        String      @id @default(uuid()) @db.Uuid
+  driverId  String      @db.Uuid
+  type      EarningType
+  amount    Int
+  rideId    String?     @db.Uuid
+  note      String?
+  createdAt DateTime    @default(now())
+
+  driver User  @relation(fields: [driverId], references: [id])
+  ride   Ride? @relation(fields: [rideId], references: [id], onDelete: Cascade)
+
+  @@unique([rideId, type])
+  @@index([driverId, createdAt])
+  @@map("driver_earnings")
 }
