@@ -31,3 +31,14 @@ describe('trackerFor', () => {
     ).toBe('ip:10.0.0.9');
   });
 });
+
+describe('AppThrottlerGuard', () => {
+  it('lets websocket and other non-HTTP contexts through instead of crashing on them', async () => {
+    const { AppThrottlerGuard } = await import('./app-throttler.guard.js');
+    const guard = Object.create(AppThrottlerGuard.prototype) as InstanceType<
+      typeof AppThrottlerGuard
+    >;
+    const ws = { getType: () => 'ws' } as any;
+    await expect(guard.canActivate(ws)).resolves.toBe(true);
+  });
+});

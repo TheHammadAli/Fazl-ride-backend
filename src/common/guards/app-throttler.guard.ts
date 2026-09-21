@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { Injectable } from '@nestjs/common';
+import { ExecutionContext, Injectable } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
 
 // Who a request counts against. Signed-in requests are counted per session, not
@@ -23,6 +23,13 @@ export function trackerFor(req: {
 
 @Injectable()
 export class AppThrottlerGuard extends ThrottlerGuard {
+  // This limit is for HTTP requests. Socket messages have their own per-socket
+  // limit in the gateway, and running the HTTP logic on them would crash.
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    if (context.getType() !== 'http') return true;
+    return super.canActivate(context);
+  }
+
   protected async getTracker(req: Record<string, any>): Promise<string> {
     return trackerFor(req);
   }
