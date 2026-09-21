@@ -17,7 +17,7 @@ Source spec: `FAZL Drivedocx.pdf` (34 sections, in `~/Documents/fazl`, next to t
 ## Repos (only two)
 - `fazl-parking-backend`: this repo, NestJS API.
 - `fazl-parking-flutter`: one Flutter app (Passenger + Driver mode + Parking discovery + Parking Owner mode).
-- The old `fazl-parking-frontned` repo is unused. FAZL already has its own admin panel; it will be integrated later. Do not build a new admin.
+- `fazl-parking-frontned` (the folder name has that typo; remote `awais002288/fazl-parking-frontned`, empty so far) is where **our own web Admin Panel will be built, later, not now** (user decision 2026-09-21, replacing the earlier plan). FAZL's existing admin panel is **not** used. Do not start it until the user says so. See "Admin panel (planned, later)" below.
 
 ## Decisions made
 | Area | Decision |
@@ -39,12 +39,22 @@ Source spec: `FAZL Drivedocx.pdf` (34 sections, in `~/Documents/fazl`, next to t
 | Driver flow | Everyone registers as a passenger. "Become a Driver" then vehicle and documents, then admin approval, then a Passenger to Driver mode switch. Background GPS permission is requested only at first "Go Online" |
 | Parking owner flow | Same pattern: "Register your parking", admin approval, then Parking Owner mode. Spaces are updated manually for v1 |
 | External systems | Sensors, parking software and FAZL app call the API with **API keys**, a separate auth path from user JWT. Keep availability behind an adapter so automated sources can plug in later |
-| Admin | No admin UI now. Build admin-role REST endpoints (approve driver/vehicle/parking, list rides, etc.), documented in Swagger. FAZL's existing admin will call them later; use Prisma Studio/Swagger meanwhile |
+| Admin | Admin-role REST endpoints in this backend, documented in Swagger (20 exist). The web Admin Panel itself will be a new app in `fazl-parking-frontned`, built later; FAZL's existing admin is not used. Until then use Swagger/Prisma Studio |
 | Maps | Google Maps |
 | Currency | PKR (mockups show $) |
 | Payments | Cash only for now |
 
 Other libs planned: Passport JWT, class-validator, Swagger, Throttler, BullMQ (later), Firebase Admin (FCM push), an SMS provider for OTP (undecided, Twilio is expensive in Pakistan).
+
+## Admin panel (planned, later)
+Decision (2026-09-21): build our own **web Admin Panel in the `fazl-parking-frontned` repo**, after the backend modules are further along. Do NOT use FAZL's existing admin. It matches the spec (Sections 17-22 describe a web admin panel and Section 30 lists "Admin Panel source code" as a deliverable). Not started; wait for the user.
+
+What the panel needs from the backend when the time comes (none of it is built yet unless noted):
+- Already there: users list, driver applications with documents (signed links), approve/reject/suspend/reinstate, vehicle approval, block/unblock, rides list and detail, fares, cancellation history and reset, API keys, audit log rows (no endpoint to read them yet).
+- To add: dashboard metrics and reports (spec Section 17: users, online drivers, active/completed/cancelled rides, deliveries, parking, revenue), an audit-log reader, complaints/support, notifications sending, system settings (statuses, thresholds, categories), live map of online drivers and active rides, parking and order/delivery management once those modules exist.
+- Browser access: CORS is not enabled (mobile apps do not need it), so it must be turned on for the admin origin, including the Socket.IO gateway if the panel shows live data.
+- Admin login is currently the same mobile OTP as everyone (needs the SMS provider). A web panel usually wants email + password (and ideally 2FA); decide when the panel starts.
+- Keep admin endpoints under `/admin/...` with the `admin` / `super_admin` roles, as now.
 
 ## Design principle: integration-first (user requirement, 2026-09-21)
 The platform must stay flexible so **any external system or new module can be integrated through the API**. Rules to follow when building anything:
