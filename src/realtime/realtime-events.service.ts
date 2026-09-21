@@ -7,7 +7,7 @@ import {
 import { Subscription } from 'rxjs';
 import { DomainEvents } from '../events/domain-events.service.js';
 import { RidesService } from '../rides/rides.service.js';
-import { RoutingProvider } from '../rides/routing/routing.provider.js';
+import { RoutingProvider } from '../routing/routing.provider.js';
 import { RealtimeGateway } from './realtime.gateway.js';
 
 // A driver position is sent to the passenger at most this often.

@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { haversineMeters } from '../../common/geo.js';
-import type { LatLng } from '../../common/geo.js';
+import { haversineMeters } from '../common/geo.js';
+import type { LatLng } from '../common/geo.js';
 import { RouteEstimate, RoutingProvider } from './routing.provider.js';
 
 // Roads are longer than a straight line and city traffic is slow, so the

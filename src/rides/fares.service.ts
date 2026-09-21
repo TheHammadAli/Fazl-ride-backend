@@ -11,7 +11,7 @@ import { DriverLocationStore } from '../presence/driver-location.store.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { UpdateFareConfigDto } from './dto/fare-config.dto.js';
 import { calculateFare } from './fare.calculator.js';
-import { RoutingProvider } from './routing/routing.provider.js';
+import { RoutingProvider } from '../routing/routing.provider.js';
 
 const MIN_TRIP_METERS = 50;
 const MAX_TRIP_METERS = 200_000;

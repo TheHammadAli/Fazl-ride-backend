@@ -8,7 +8,7 @@ import { DomainEvents } from '../events/domain-events.service.js';
 import { VehicleCategory } from '../generated/prisma/enums.js';
 import { DriverLocationStore } from '../presence/driver-location.store.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { RoutingProvider } from './routing/routing.provider.js';
+import { RoutingProvider } from '../routing/routing.provider.js';
 import { RideSettings } from './rides.settings.js';
 
 // Only one app instance runs a tick at a time (Postgres advisory lock), so the

@@ -20,7 +20,7 @@ import {
   RideWithRelations,
 } from './ride.presenter.js';
 import { RatingsService } from './ratings.service.js';
-import { RoutingProvider } from './routing/routing.provider.js';
+import { RoutingProvider } from '../routing/routing.provider.js';
 import { RideSettings } from './rides.settings.js';
 import { billedDistanceMeters, FareRatesSnapshot } from './trip-distance.js';
 

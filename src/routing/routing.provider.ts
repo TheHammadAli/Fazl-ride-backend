@@ -1,4 +1,4 @@
-import type { LatLng } from '../../common/geo.js';
+import type { LatLng } from '../common/geo.js';
 
 export interface RouteEstimate {
   distanceMeters: number;
