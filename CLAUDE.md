@@ -26,10 +26,10 @@ Source spec: `FAZL Drivedocx.pdf` (34 sections, in `~/Documents/fazl`, next to t
 | Database | PostgreSQL + PostGIS |
 | ORM | Prisma **7.x** (npm `latest` is currently 8.0 RC; avoid RC) |
 | Nearby queries | Prisma has no native PostGIS support, so use `$queryRaw` with PostGIS functions |
-| Storage | AWS S3, private bucket, presigned URLs for documents; dedicated IAM user. Keep storage behind one service so the provider is swappable |
+| Storage | **Supabase Storage for now** (user decision 2026-09-21, replaces AWS S3): one private bucket, files only reachable through short-lived signed URLs, service-role key server-side only. Everything goes through the abstract `StorageService`, so moving to S3 later means writing one class |
 | Files | Never save files on the Render disk (ephemeral) |
 | Hosting | Render (free tier only for testing; launch needs always-on paid) |
-| Prod DB | Supabase Postgres (+PostGIS). Use it only as Postgres. Do NOT use Supabase Auth/RLS/Storage |
+| Prod DB | Supabase Postgres (+PostGIS). Use it as Postgres and as object storage only. Do NOT use Supabase Auth/RLS. The user also wants Supabase as the dev database for now |
 | Prisma + Supabase | Pooled URL for the app and a direct/session-pooler URL for migrations (`DATABASE_URL` and `DIRECT_URL`). Run `prisma migrate deploy` as the Render pre-deploy command |
 | Dev DB | Local Postgres + PostGIS (planned via Homebrew; Docker is NOT installed and not required) |
 | Redis | Not needed until the ride phase (live driver locations, OTP expiry, timeouts) |
@@ -48,7 +48,7 @@ Other libs planned: Passport JWT, class-validator, Swagger, Throttler, BullMQ (l
 
 ## Phases (single developer estimates)
 0. Setup: NestJS + Prisma + local Postgres/PostGIS, `/health`, Swagger, `.env`, API contract (~3-4 days)
-1. Foundation: OTP login, JWT, roles, profile, Become a Driver + vehicle/document upload to S3, admin approval endpoints (~2 weeks)
+1. Foundation: OTP login, JWT, roles, profile, Become a Driver + vehicle/document upload to Supabase Storage, admin approval endpoints (~2 weeks)
 2. **Parking first**: PostGIS nearby, list/details, register parking, owner availability update (~2-3 weeks). It is the smallest module and proves the pipeline
 3. Ride: online/offline, GPS, request/accept, lifecycle `requested, accepted, arrived, started, completed/cancelled`, live tracking, ratings, history, notifications (~5-6 weeks)
 4. FAZL integration: tracking API keyed by order id, status sync, configurable statuses, Track Order (~3 weeks). Needs FAZL's API docs. Not yet obtained
@@ -86,6 +86,7 @@ All routes are under `/api/v1`, Swagger at `/docs`.
 - `users`: `GET/PATCH users/me` (returns roles and driver application status).
 - `drivers`: `POST drivers/apply` (cnic + license + first vehicle, re-apply allowed after rejection), `GET drivers/me`, `POST drivers/me/vehicles` (approved drivers only).
 - `admin` (role admin/super_admin): list users, list/get drivers, approve/reject driver (approve grants the `driver` role, reject removes it), approve/reject vehicle.
+- Documents: `POST drivers/me/documents` (multipart `file` + `type` [+ `vehicleId` for `vehicle_registration`]; JPEG/PNG/WebP/PDF by magic bytes, max 5 MB; same type again replaces the old file), `GET drivers/me/documents`. Admin `GET admin/drivers/:id` returns documents with 10-minute signed URLs. Approve/reject never call storage. Re-applying after a rejection deletes the old vehicles' registration files.
 - Roles are read from the DB on each request (JwtStrategy), so approval/block is immediate.
 - First super admin: put the phone in `SUPER_ADMIN_PHONES` (env); it gets `super_admin` on its next OTP login.
 - Gotcha: `@nestjs/passport` 12 with Nest 12 fails to resolve `AuthModuleOptions` in `JwtAuthGuard` unless `PassportModule.register(...)` is used (done in `AuthModule`, exported to feature modules).
@@ -93,6 +94,7 @@ All routes are under `/api/v1`, Swagger at `/docs`.
 - Auth throttle: `otp/request` is limited to 5/min per IP, so scripted tests need pauses.
 
 ## Not built yet
-- Document upload (CNIC/license/vehicle papers) to S3 with presigned URLs
+- Supabase project is not connected yet: the user must create it, a private bucket `driver-documents`, and fill `DATABASE_URL`, `DIRECT_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` in `.env`, then run `npx prisma migrate deploy`. Until then uploads return 503 "File storage is not configured". Supabase can host PostGIS (enable the extension), which would also solve the local PostGIS problem.
+- Open: should approval require all documents to be uploaded? Currently it does not.
 - Real SMS provider, FCM push, API-key auth for external systems
 - Parking module (Phase 2), rides (Phase 3), FAZL integration (Phase 4)
