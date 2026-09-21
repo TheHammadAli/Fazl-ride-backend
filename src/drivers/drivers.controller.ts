@@ -1,7 +1,10 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  Param,
+  ParseUUIDPipe,
   Post,
   UploadedFile,
   UseGuards,
@@ -43,6 +46,14 @@ export class DriversController {
   @Post('me/vehicles')
   addVehicle(@CurrentUser() user: AuthUser, @Body() dto: VehicleDto) {
     return this.drivers.addVehicle(user.id, dto);
+  }
+
+  @Delete('me/vehicles/:id')
+  removeVehicle(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.drivers.removeVehicle(user.id, id);
   }
 
   // multipart/form-data: `file` (JPEG/PNG/WebP/PDF, max 5 MB) + `type` (+ `vehicleId`).

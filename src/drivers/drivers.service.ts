@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { DriverDocumentsService } from './driver-documents.service.js';
+import { DriverRequirementsService } from './driver-requirements.js';
 import { ApplyDriverDto, VehicleDto } from './dto/driver.dto.js';
 
 @Injectable()
@@ -13,6 +14,7 @@ export class DriversService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly documents: DriverDocumentsService,
+    private readonly requirements: DriverRequirementsService,
   ) {}
 
   // "Become a Driver": creates a pending profile plus the first vehicle.
@@ -70,10 +72,18 @@ export class DriversService {
   async getMine(userId: string) {
     const profile = await this.prisma.driverProfile.findUnique({
       where: { userId },
-      include: { vehicles: true },
+      include: {
+        vehicles: true,
+        documents: { select: { type: true, vehicleId: true } },
+      },
     });
     if (!profile) throw new NotFoundException('No driver application found');
-    return profile;
+    // Tells the app what is still left to upload before admin review can succeed.
+    const { documents, ...rest } = profile;
+    return {
+      ...rest,
+      missingDocuments: this.requirements.missing(profile.vehicles, documents),
+    };
   }
 
   async addVehicle(userId: string, dto: VehicleDto) {
@@ -91,6 +101,27 @@ export class DriversService {
     } catch (error: any) {
       throw this.uniqueConflict(error) ?? error;
     }
+  }
+
+  // A driver always keeps at least one vehicle. Its registration file goes too.
+  async removeVehicle(userId: string, vehicleId: string) {
+    const profile = await this.prisma.driverProfile.findUnique({
+      where: { userId },
+      include: {
+        vehicles: { include: { documents: { select: { storageKey: true } } } },
+      },
+    });
+    if (!profile) throw new NotFoundException('No driver application found');
+    const vehicle = profile.vehicles.find((v) => v.id === vehicleId);
+    if (!vehicle) throw new NotFoundException('Vehicle not found');
+    if (profile.vehicles.length === 1) {
+      throw new ConflictException('You cannot remove your only vehicle');
+    }
+    await this.prisma.vehicle.delete({ where: { id: vehicleId } });
+    await this.documents.removeQuietly(
+      vehicle.documents.map((d) => d.storageKey),
+    );
+    return { message: 'Vehicle removed' };
   }
 
   private vehicleData(driverProfileId: string, v: VehicleDto) {
