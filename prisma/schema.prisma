@@ -1,0 +1,137 @@
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  customer
+  driver
+  parking_operator
+  admin
+  super_admin
+}
+
+enum UserStatus {
+  active
+  blocked
+}
+
+enum DriverStatus {
+  pending
+  approved
+  rejected
+  suspended
+}
+
+enum VehicleStatus {
+  pending
+  approved
+  rejected
+}
+
+enum VehicleCategory {
+  economy
+  comfort
+  xl
+}
+
+model User {
+  id        String     @id @default(uuid()) @db.Uuid
+  phone     String     @unique
+  name      String?
+  email     String?    @unique
+  avatarUrl String?
+  status    UserStatus @default(active)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  roles         UserRole[]
+  refreshTokens RefreshToken[]
+  driverProfile DriverProfile?
+
+  @@map("users")
+}
+
+// One user can hold several roles (e.g. customer + driver).
+model UserRole {
+  userId    String   @db.Uuid
+  role      Role
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, role])
+  @@map("user_roles")
+}
+
+model OtpCode {
+  id         String    @id @default(uuid()) @db.Uuid
+  phone      String
+  codeHash   String
+  expiresAt  DateTime
+  attempts   Int       @default(0)
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([phone, createdAt])
+  @@map("otp_codes")
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  tokenHash String    @unique
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+// "Become a Driver": created when a customer applies, approved by an admin.
+model DriverProfile {
+  id              String       @id @default(uuid()) @db.Uuid
+  userId          String       @unique @db.Uuid
+  cnic            String       @unique
+  licenseNumber   String
+  status          DriverStatus @default(pending)
+  rejectionReason String?
+  reviewedById    String?      @db.Uuid
+  reviewedAt      DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vehicles Vehicle[]
+
+  @@index([status])
+  @@map("driver_profiles")
+}
+
+model Vehicle {
+  id              String          @id @default(uuid()) @db.Uuid
+  driverProfileId String          @db.Uuid
+  category        VehicleCategory @default(economy)
+  make            String
+  model           String
+  year            Int
+  color           String
+  plateNumber     String          @unique
+  status          VehicleStatus   @default(pending)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  driverProfile DriverProfile @relation(fields: [driverProfileId], references: [id], onDelete: Cascade)
+
+  @@index([driverProfileId])
+  @@map("vehicles")
+}
