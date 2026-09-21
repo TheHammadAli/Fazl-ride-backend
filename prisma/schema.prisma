@@ -210,13 +210,12 @@ model AuditLog {
 
 // Fare rules per vehicle category, in PKR whole rupees (rates per km / minute can be fractional).
 model FareConfig {
-  category        VehicleCategory @id
-  baseFare        Int
-  perKm           Float
-  perMinute       Float
-  minimumFare     Int
-  cancellationFee Int
-  updatedAt       DateTime        @updatedAt
+  category    VehicleCategory @id
+  baseFare    Int
+  perKm       Float
+  perMinute   Float
+  minimumFare Int
+  updatedAt   DateTime        @updatedAt
 
   @@map("fare_configs")
 }
@@ -306,10 +305,20 @@ model Ride {
   durationSeconds Int?
   fare            Int?
 
-  paymentMethod   PaymentMethod @default(cash)
-  cancellationFee Int           @default(0)
-  cancelledBy     CancelledBy?
-  cancelReason    String?
+  paymentMethod       PaymentMethod @default(cash)
+  cancelledBy         CancelledBy?
+  // Which state the ride was in when it was cancelled (for cancellation statistics).
+  cancelledFromStatus RideStatus?
+  cancelReason        String?
+
+  // Rates the passenger was quoted, so the final fare uses the same prices even
+  // if an admin changes the fare config while the ride is in progress.
+  rates Json?
+
+  // Distance driven since the ride started, summed from the driver's location updates.
+  trackedMeters Float  @default(0)
+  lastLat       Float?
+  lastLng       Float?
 
   // Matching: the search widens step by step until someone accepts or the request expires.
   searchStep         Int      @default(0)
