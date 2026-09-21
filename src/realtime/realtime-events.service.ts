@@ -69,6 +69,13 @@ export class RealtimeEventsService implements OnModuleInit, OnModuleDestroy {
       case 'driver.location':
         return this.sendDriverLocation(p);
 
+      case 'driver.offline':
+        // The driver was put offline for being idle; the app should show it and offer "Go Online".
+        return this.gateway.emitToUser(p.userId, 'driver:offline', {
+          reason: p.reason,
+          lastSeenAt: p.lastSeenAt,
+        });
+
       case 'user.blocked':
         return this.gateway.disconnectUser(
           p.userId,
