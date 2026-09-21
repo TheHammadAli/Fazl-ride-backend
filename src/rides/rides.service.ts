@@ -133,14 +133,79 @@ export class RidesService {
       include: { ride: { include: rideInclude } },
       orderBy: { offeredAt: 'desc' },
     });
-    return offers.map((offer) => ({
+    return offers.map((offer) => this.presentOffer(offer));
+  }
+
+  // One pending offer, in the same shape as the list, or null if it is gone.
+  async offerFor(driverId: string, rideId: string) {
+    const offer = await this.prisma.rideOffer.findFirst({
+      where: {
+        driverId,
+        rideId,
+        status: 'pending',
+        expiresAt: { gt: new Date() },
+        ride: { status: 'requested' },
+      },
+      include: { ride: { include: rideInclude } },
+    });
+    return offer ? this.presentOffer(offer) : null;
+  }
+
+  // Drivers who were asked about this ride (except one), so they can be told it is gone.
+  async offeredDriverIds(rideId: string, exceptDriverId?: string) {
+    const offers = await this.prisma.rideOffer.findMany({
+      where: {
+        rideId,
+        ...(exceptDriverId && { driverId: { not: exceptDriverId } }),
+      },
+      select: { driverId: true },
+    });
+    return offers.map((o) => o.driverId);
+  }
+
+  // The passenger and the assigned driver of a ride (the only people who may see it).
+  async partiesOf(rideId: string) {
+    const ride = await this.prisma.ride.findUnique({
+      where: { id: rideId },
+      select: { passengerId: true, driverId: true },
+    });
+    if (!ride) return null;
+    return ride.driverId
+      ? [ride.passengerId, ride.driverId]
+      : [ride.passengerId];
+  }
+
+  // The trip a driver is on right now, for streaming their position to the passenger.
+  async activeTripOf(driverId: string) {
+    const ride = await this.prisma.ride.findFirst({
+      where: { driverId, status: { in: [...DRIVER_ACTIVE] } },
+      select: {
+        id: true,
+        passengerId: true,
+        status: true,
+        pickupLat: true,
+        pickupLng: true,
+      },
+    });
+    return ride ? { rideId: ride.id, ...ride } : null;
+  }
+
+  private presentOffer(offer: {
+    id: string;
+    rideId: string;
+    expiresAt: Date;
+    distanceToPickupMeters: number;
+    etaSeconds: number;
+    ride: RideWithRelations;
+  }) {
+    return {
       offerId: offer.id,
       rideId: offer.rideId,
       expiresAt: offer.expiresAt,
       distanceToPickupMeters: offer.distanceToPickupMeters,
       etaSeconds: offer.etaSeconds,
       ride: presentRide(offer.ride),
-    }));
+    };
   }
 
   // First driver to get here wins. Everything below runs in one transaction, so
