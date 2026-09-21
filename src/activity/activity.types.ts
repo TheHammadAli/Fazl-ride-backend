@@ -17,6 +17,8 @@ export interface ActivityItem {
 
 export interface ActivityQuery {
   userId: string;
+  // The user's phone number, for modules whose records are matched by phone.
+  phone: string;
   // Rides can be listed from either side; other modules may ignore it.
   as: 'passenger' | 'driver';
   limit: number;

@@ -23,6 +23,7 @@ export class ActivityService {
       as: 'passenger' | 'driver';
       limit: number;
       cursor?: string;
+      phone?: string;
     },
   ) {
     const before = decodeCursor(opts.cursor);
@@ -37,7 +38,13 @@ export class ActivityService {
     // is always inside their union, so nothing is skipped between pages.
     const lists = await Promise.all(
       wanted.map((p) =>
-        p.list({ userId, as: opts.as, limit: opts.limit + 1, before }),
+        p.list({
+          userId,
+          phone: opts.phone ?? '',
+          as: opts.as,
+          limit: opts.limit + 1,
+          before,
+        }),
       ),
     );
     const merged = lists

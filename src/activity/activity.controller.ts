@@ -53,6 +53,7 @@ export class ActivityController {
       as: query.as ?? 'passenger',
       limit: query.limit ?? 20,
       cursor: query.cursor,
+      phone: user.phone,
     });
   }
 }

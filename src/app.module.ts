@@ -14,6 +14,7 @@ import { EarningsModule } from './earnings/earnings.module.js';
 import { DomainEventsModule } from './events/domain-events.module.js';
 import { DriversModule } from './drivers/drivers.module.js';
 import { HealthController } from './health/health.controller.js';
+import { OrderTrackingModule } from './order-tracking/order-tracking.module.js';
 import { PresenceModule } from './presence/presence.module.js';
 import { RealtimeModule } from './realtime/realtime.module.js';
 import { RoutingModule } from './routing/routing.module.js';
@@ -45,6 +46,7 @@ import { UsersModule } from './users/users.module.js';
     PresenceModule,
     RidesModule,
     RealtimeModule,
+    OrderTrackingModule,
     AdminModule,
   ],
   controllers: [HealthController],
