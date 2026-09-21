@@ -7,5 +7,7 @@ export default defineConfig({
   datasource: {
     // Migrations use the direct connection; the app uses DATABASE_URL (pooled).
     url: process.env.DIRECT_URL ?? process.env.DATABASE_URL ?? '',
+    // Only needed by `prisma migrate dev`, which replays migrations in a scratch database.
+    shadowDatabaseUrl: process.env.SHADOW_DATABASE_URL,
   },
 });
