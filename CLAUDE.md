@@ -73,17 +73,35 @@ The platform must stay flexible so **any external system or new module can be in
 5. Testing and launch (~2-3 weeks)
 
 ## Mockup details that affect the backend
-- Ride categories Economy / Comfort / XL with per-category fare (doc lists these as future scope; the design shows them)
-- Wallet tab, in-app Message button and parking "Reserve" button appear in the design but are future in the doc. Plan: Reserve shown as "Coming soon"; Wallet and Chat later
-- Driver Earnings shows a **Cashout** row (payouts). It is not in the doc; needs a decision
-- Parking status has **Available / Limited / Full**; the "Limited" threshold is undecided
-- Order Details shows a timestamp per status, so store status history
-- Ride History has tabs All / Rides / Deliveries / Parking
+Source: the combined design image the user shared (Passenger app, Driver app, FAZL Order Tracking, Parking Discovery). Header text "One App. Multiple Services", tabs Ride | Deliver | Park, and a "More Services Coming Soon" panel: **more services will be added later**, which is why the platform must stay modular and integration-first. Prices in the mockup are in $ (we use PKR).
+
+**Passenger app**
+- Login screen shows mobile number **+ password**, "Forgot password?", Google / Apple / one more social icon, "Sign Up". Driver login shows mobile number + "Continue" (OTP style), Google/Apple, "Register". Our backend is OTP-only today. See open questions.
+- Home: search "Where are you going?", nearby cars on the map, service tiles Ride / Delivery / Parking, and a "Track Your Order" banner (FAZL order).
+- Choose a Ride: per category **pickup ETA + distance + fare** (Economy 4 min 2.3 km, Comfort 6 min 3.1 km, XL 8 min 4.2 km). So the estimate must also return the nearest driver's ETA and availability per category (planned in B2).
+- Driver Arriving: driver card (name, rating with count, car make/model/colour, plate, photo), Call and Message buttons, "Arriving in 3 min", distance, live route. Needs a public driver card, live location and ETA. Call = expose the number or a masked call; Message = in-app chat (future).
+- Ride Completed: total fare, rate the driver (stars), Submit, "View Ride Details".
+- Ride History: tabs **All / Rides / Deliveries / Parking**, each row has route, date/time, fare, rating. Bottom nav: Home, Orders, Wallet, Profile. History must be a unified feed that every module can contribute to (design an `ActivityItem` contract, do not hard-wire rides).
+
+**Driver app**
+- Dashboard: Online toggle, "Go Online", **Today's Rides** and **Earnings**.
+- Ride request card: pickup, drop-off, distance and time to pickup (2.5 km, 6 min), fare, Decline / Accept. The offer payload needs the client's address strings, distance/ETA to pickup and the amount shown to the driver.
+- Navigation to pickup is turn-by-turn in the app (Google Maps on the client); the backend only needs status changes.
+- Active Ride: passenger name and rating, route, vehicle, Call, Message, **Start Ride**.
+- Earnings: period filter (Today), total, **Rides count, Online Hours**, Recent Transactions (Ride Fare +, **Cashout -**). Needs a per-driver earnings ledger and online-session tracking. Note: with cash-only rides the driver already holds the money, so "Cashout" only makes sense with a wallet/online payments or a commission settlement. Needs a decision.
+
+**FAZL Order Tracking (screens live inside the FAZL app)**
+- My Orders (Active / Completed) with order id like `#ORD123456`, date and status; Track Order map with "Driver is on the way", ETA and distance; Order Details with a status timeline and a **timestamp per step** (Order Confirmed, Preparing, Driver Assigned, In Transit, Delivered); Driver Details (name, rating, vehicle, plate, Call, Message, live location). The delivery person drives a car, so it can reuse the driver and vehicle model.
+
+**Parking Discovery**
+- Map with search nearby and pins; list card "Parking A, 2.1 km, 100 total, 27 available".
+- Details: photo, name/area, Total / Available / Occupied, price per hour, operating hours, **Navigate**, **Reserve** (future, show "Coming soon").
+- Availability list statuses **Available / Limited / Full**. From the mockup: 27/100 Available, 12/60 (20%) Available, 5/50 (10%) **Limited**, 0/80 Full. So the Limited threshold sits between 10% and 20%; proposed default **available <= 15% of total = Limited**, kept in config. Full = 0 available.
 
 ## Open questions
 - SMS/OTP provider; OTP only vs password; social login
 - Fare rules (base, per-km, per-category) and admin configurability
-- Cashout/payout behaviour; Limited threshold
+- Cashout/payout behaviour and platform commission (see the earnings note above)
 - FAZL: API docs, whether FAZL users log in with the same account (SSO), and how Track Order opens our screens
 - Whether the FAZL admin has its own backend/auth to reconcile with
 
