@@ -17,6 +17,8 @@ import { RolesGuard } from '../common/guards/roles.guard.js';
 import { Role } from '../generated/prisma/enums.js';
 import { EstimateRideDto } from './dto/ride.dto.js';
 import { CancelRideDto, RequestRideDto } from './dto/request-ride.dto.js';
+import { RateRideDto } from './dto/rate-ride.dto.js';
+import { RatingsService } from './ratings.service.js';
 import { FaresService } from './fares.service.js';
 import { RidesService } from './rides.service.js';
 
@@ -28,6 +30,7 @@ export class RidesController {
   constructor(
     private readonly fares: FaresService,
     private readonly rides: RidesService,
+    private readonly ratings: RatingsService,
   ) {}
 
   // Read-only price quote, creates nothing.
@@ -61,6 +64,16 @@ export class RidesController {
     @Body() dto: CancelRideDto,
   ) {
     return this.rides.cancel(user.id, id, dto);
+  }
+
+  @Post(':id/rate')
+  @HttpCode(200)
+  rate(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RateRideDto,
+  ) {
+    return this.ratings.rate(user.id, id, dto);
   }
 
   @Post(':id/accept')

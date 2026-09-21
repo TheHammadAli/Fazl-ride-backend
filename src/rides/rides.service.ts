@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { CancellationsService } from '../cancellations/cancellations.service.js';
 import { haversineMeters } from '../common/geo.js';
 import { DomainEvents } from '../events/domain-events.service.js';
 import { RideStatus, VehicleCategory } from '../generated/prisma/enums.js';
@@ -10,6 +11,7 @@ import { DriverLocationStore } from '../presence/driver-location.store.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CancelRideDto, RequestRideDto } from './dto/request-ride.dto.js';
 import { calculateFare } from './fare.calculator.js';
+import { EarningsService } from '../earnings/earnings.service.js';
 import { FaresService } from './fares.service.js';
 import { MatchingService } from './matching.service.js';
 import {
@@ -17,6 +19,7 @@ import {
   rideInclude,
   RideWithRelations,
 } from './ride.presenter.js';
+import { RatingsService } from './ratings.service.js';
 import { RoutingProvider } from './routing/routing.provider.js';
 import { RideSettings } from './rides.settings.js';
 import { billedDistanceMeters, FareRatesSnapshot } from './trip-distance.js';
@@ -39,10 +42,14 @@ export class RidesService {
     private readonly routing: RoutingProvider,
     private readonly settings: RideSettings,
     private readonly events: DomainEvents,
+    private readonly cancellations: CancellationsService,
+    private readonly ratings: RatingsService,
+    private readonly earnings: EarningsService,
   ) {}
 
   // Creates the request and immediately offers it to the nearest drivers.
   async request(passengerId: string, dto: RequestRideDto) {
+    await this.cancellations.assertNotBlocked(passengerId, 'passenger');
     const quote = await this.fares.quote(dto.pickup, dto.dropoff, dto.category);
     const now = new Date();
     let ride: RideWithRelations;
@@ -102,7 +109,7 @@ export class RidesService {
           : { driverId: userId, status: { in: DRIVER_ACTIVE } },
       include: rideInclude,
     });
-    return { ride: ride ? await this.view(ride) : null };
+    return { ride: ride ? await this.view(ride, userId) : null };
   }
 
   async get(userId: string, id: string) {
@@ -111,7 +118,7 @@ export class RidesService {
       include: rideInclude,
     });
     if (!ride) throw new NotFoundException('Ride not found');
-    return this.view(ride);
+    return this.view(ride, userId);
   }
 
   // Offers waiting for this driver's answer, newest first.
@@ -139,6 +146,7 @@ export class RidesService {
   // First driver to get here wins. Everything below runs in one transaction, so
   // a lost race (or being offline / already busy) leaves nothing half-done.
   async accept(driverId: string, rideId: string) {
+    await this.cancellations.assertNotBlocked(driverId, 'driver');
     const presence = await this.prisma.driverPresence.findUnique({
       where: { userId: driverId },
     });
@@ -311,6 +319,11 @@ export class RidesService {
       });
       if (done.count === 0)
         throw new ConflictException('This ride is no longer in progress');
+      await this.earnings.recordRideFare(tx, {
+        driverId,
+        rideId,
+        amount: fare,
+      });
       await tx.$executeRaw`
         UPDATE driver_presence SET "busy" = false, "updatedAt" = now()
         WHERE "userId" = ${driverId}::uuid`;
@@ -369,6 +382,13 @@ export class RidesService {
         data: { status: 'expired', respondedAt: now },
       });
       if (driverId) {
+        await this.cancellations.record(tx, {
+          rideId,
+          userId: passengerId,
+          role: 'passenger',
+          fromStatus: from,
+          reason: dto.reason,
+        });
         // The driver is free again and can take another ride.
         await tx.$executeRaw`
           UPDATE driver_presence SET "busy" = false, "updatedAt" = now()
@@ -427,6 +447,13 @@ export class RidesService {
       });
       // Drivers who missed the ride the first time are eligible again; the one
       // who backed out stays marked so they are not offered it a second time.
+      await this.cancellations.record(tx, {
+        rideId,
+        userId: driverId,
+        role: 'driver',
+        fromStatus: from,
+        reason: dto.reason,
+      });
       await tx.rideOffer.deleteMany({ where: { rideId, NOT: { driverId } } });
       await tx.rideOffer.updateMany({
         where: { rideId, driverId },
@@ -514,9 +541,14 @@ export class RidesService {
   }
 
   // Adds the driver's live position and pickup ETA/distance while they come to the passenger.
-  private async view(ride: RideWithRelations) {
-    if (!ride.driverId || !DRIVER_ACTIVE.includes(ride.status))
-      return presentRide(ride);
+  private async view(ride: RideWithRelations, viewerId: string) {
+    const myRating =
+      ride.status === 'completed'
+        ? await this.ratings.mine(ride.id, viewerId)
+        : null;
+    if (!ride.driverId || !DRIVER_ACTIVE.includes(ride.status)) {
+      return presentRide(ride, { myRating });
+    }
     const driverLocation = await this.locations.getLocation(ride.driverId);
     let driverEtaSeconds: number | null = null;
     let driverDistanceToPickupMeters: number | null = null;
@@ -532,6 +564,7 @@ export class RidesService {
       driverLocation,
       driverEtaSeconds,
       driverDistanceToPickupMeters,
+      myRating,
     });
   }
 }

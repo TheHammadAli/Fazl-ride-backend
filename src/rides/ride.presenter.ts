@@ -1,9 +1,26 @@
 import type { Prisma } from '../generated/prisma/client.js';
+import { ratingView } from './rating.js';
 import type { DriverPosition } from '../presence/driver-location.store.js';
 
 export const rideInclude = {
-  passenger: { select: { id: true, name: true, phone: true } },
-  driver: { select: { id: true, name: true, phone: true } },
+  passenger: {
+    select: {
+      id: true,
+      name: true,
+      phone: true,
+      ratingSum: true,
+      ratingCount: true,
+    },
+  },
+  driver: {
+    select: {
+      id: true,
+      name: true,
+      phone: true,
+      ratingSum: true,
+      ratingCount: true,
+    },
+  },
   vehicle: {
     select: {
       make: true,
@@ -23,6 +40,8 @@ export interface RideViewExtras {
   driverLocation?: DriverPosition | null;
   driverEtaSeconds?: number | null;
   driverDistanceToPickupMeters?: number | null;
+  // What the person looking at the ride gave the other party, if anything yet.
+  myRating?: { stars: number; comment: string | null } | null;
 }
 
 // Phone numbers are shared only while a ride is on, and only with the two people on it
@@ -56,6 +75,7 @@ export function presentRide(
       durationSeconds: ride.estimatedDurationSeconds,
     },
     fare: ride.fare,
+    myRating: extras.myRating ?? null,
     cancelledBy: ride.cancelledBy,
     cancelReason: ride.cancelReason,
     cancelledFromStatus: ride.cancelledFromStatus,
@@ -63,12 +83,14 @@ export function presentRide(
       id: ride.passenger.id,
       name: ride.passenger.name,
       phone: PHONE_VISIBLE.includes(ride.status) ? ride.passenger.phone : null,
+      rating: ratingView(ride.passenger.ratingSum, ride.passenger.ratingCount),
     },
     driver: ride.driver
       ? {
           id: ride.driver.id,
           name: ride.driver.name,
           phone: PHONE_VISIBLE.includes(ride.status) ? ride.driver.phone : null,
+          rating: ratingView(ride.driver.ratingSum, ride.driver.ratingCount),
           vehicle: ride.vehicle,
           location: extras.driverLocation
             ? {
