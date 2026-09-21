@@ -11,6 +11,13 @@ export interface NearbyDriver {
   heading: number | null;
 }
 
+export interface DriverPosition {
+  lat: number;
+  lng: number;
+  heading: number | null;
+  updatedAt: Date;
+}
+
 export interface NearbyQuery extends LatLng {
   radiusMeters: number;
   limit: number;
@@ -34,4 +41,5 @@ export abstract class DriverLocationStore {
   ): Promise<void>;
   abstract setBusy(userId: string, busy: boolean): Promise<void>;
   abstract findNearby(query: NearbyQuery): Promise<NearbyDriver[]>;
+  abstract getLocation(userId: string): Promise<DriverPosition | null>;
 }

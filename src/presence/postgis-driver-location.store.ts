@@ -5,6 +5,7 @@ import { VehicleCategory } from '../generated/prisma/enums.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import {
   DriverLocationStore,
+  DriverPosition,
   NearbyDriver,
   NearbyQuery,
 } from './driver-location.store.js';
@@ -113,5 +114,16 @@ export class PostgisDriverLocationStore extends DriverLocationStore {
       lng: r.lng,
       heading: r.heading,
     }));
+  }
+
+  async getLocation(userId: string): Promise<DriverPosition | null> {
+    const rows = await this.prisma.$queryRaw<
+      { lat: number; lng: number; heading: number | null; updatedAt: Date }[]
+    >`
+      SELECT ST_Y("location"::geometry) AS lat, ST_X("location"::geometry) AS lng,
+             "heading", "locationUpdatedAt" AS "updatedAt"
+      FROM driver_presence
+      WHERE "userId" = ${userId}::uuid AND "isOnline" AND "location" IS NOT NULL`;
+    return rows[0] ?? null;
   }
 }
