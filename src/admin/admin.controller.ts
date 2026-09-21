@@ -62,15 +62,59 @@ export class AdminController {
     return this.admin.rejectDriver(id, user.id, dto.reason);
   }
 
+  @Post('drivers/:id/suspend')
+  @HttpCode(200)
+  suspendDriver(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthUser,
+    @Body() dto: RejectDto,
+  ) {
+    return this.admin.suspendDriver(id, user.id, dto.reason);
+  }
+
+  @Post('drivers/:id/reinstate')
+  @HttpCode(200)
+  reinstateDriver(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.admin.reinstateDriver(id, user.id);
+  }
+
+  @Post('users/:id/block')
+  @HttpCode(200)
+  blockUser(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthUser,
+    @Body() dto: RejectDto,
+  ) {
+    return this.admin.blockUser(id, user, dto.reason);
+  }
+
+  @Post('users/:id/unblock')
+  @HttpCode(200)
+  unblockUser(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.admin.unblockUser(id, user.id);
+  }
+
   @Post('vehicles/:id/approve')
   @HttpCode(200)
-  approveVehicle(@Param('id', ParseUUIDPipe) id: string) {
-    return this.admin.setVehicleStatus(id, 'approved');
+  approveVehicle(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.admin.setVehicleStatus(id, 'approved', user.id);
   }
 
   @Post('vehicles/:id/reject')
   @HttpCode(200)
-  rejectVehicle(@Param('id', ParseUUIDPipe) id: string) {
-    return this.admin.setVehicleStatus(id, 'rejected');
+  rejectVehicle(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.admin.setVehicleStatus(id, 'rejected', user.id);
   }
 }

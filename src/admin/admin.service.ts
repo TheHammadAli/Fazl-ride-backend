@@ -1,10 +1,15 @@
 import {
+  BadRequestException,
+  ForbiddenException,
   ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { Role } from '../generated/prisma/enums.js';
+import type { AuthUser } from '../common/decorators/current-user.decorator.js';
+import { AuditService } from '../audit/audit.service.js';
 import { DriverDocumentsService } from '../drivers/driver-documents.service.js';
+import { DriverRequirementsService } from '../drivers/driver-requirements.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ListDriversDto, ListUsersDto } from './dto/admin.dto.js';
 
@@ -19,6 +24,8 @@ export class AdminService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly documents: DriverDocumentsService,
+    private readonly requirements: DriverRequirementsService,
+    private readonly audit: AuditService,
   ) {}
 
   async listUsers({ page, limit, search }: ListUsersDto) {
@@ -84,6 +91,19 @@ export class AdminService {
     if (profile.status === 'approved') {
       throw new ConflictException('Driver is already approved');
     }
+    const pendingVehicles = profile.vehicles.filter(
+      (v) => v.status === 'pending',
+    );
+    const missing = this.requirements.missing(
+      pendingVehicles,
+      profile.documents,
+    );
+    if (missing.length) {
+      throw new BadRequestException({
+        message: 'Required documents are missing',
+        missing,
+      });
+    }
     await this.prisma.$transaction([
       this.prisma.driverProfile.update({
         where: { id },
@@ -104,6 +124,7 @@ export class AdminService {
         create: { userId: profile.userId, role: Role.driver },
       }),
     ]);
+    await this.audit.log(adminId, 'driver.approve', 'driver_profile', id);
     return this.findDriver(id);
   }
 
@@ -131,12 +152,129 @@ export class AdminService {
         where: { userId: profile.userId, role: Role.driver },
       }),
     ]);
+    await this.audit.log(adminId, 'driver.reject', 'driver_profile', id, {
+      reason,
+    });
     return this.findDriver(id);
   }
 
-  async setVehicleStatus(id: string, status: 'approved' | 'rejected') {
-    const vehicle = await this.prisma.vehicle.findUnique({ where: { id } });
+  async suspendDriver(id: string, adminId: string, reason: string) {
+    const profile = await this.findDriver(id);
+    if (profile.status !== 'approved') {
+      throw new ConflictException('Only approved drivers can be suspended');
+    }
+    await this.prisma.$transaction([
+      this.prisma.driverProfile.update({
+        where: { id },
+        data: { status: 'suspended', suspensionReason: reason },
+      }),
+      this.prisma.userRole.deleteMany({
+        where: { userId: profile.userId, role: Role.driver },
+      }),
+    ]);
+    await this.audit.log(adminId, 'driver.suspend', 'driver_profile', id, {
+      reason,
+    });
+    return this.findDriver(id);
+  }
+
+  async reinstateDriver(id: string, adminId: string) {
+    const profile = await this.findDriver(id);
+    if (profile.status !== 'suspended') {
+      throw new ConflictException('Only suspended drivers can be reinstated');
+    }
+    await this.prisma.$transaction([
+      this.prisma.driverProfile.update({
+        where: { id },
+        data: { status: 'approved', suspensionReason: null },
+      }),
+      this.prisma.userRole.upsert({
+        where: { userId_role: { userId: profile.userId, role: Role.driver } },
+        update: {},
+        create: { userId: profile.userId, role: Role.driver },
+      }),
+    ]);
+    await this.audit.log(adminId, 'driver.reinstate', 'driver_profile', id);
+    return this.findDriver(id);
+  }
+
+  async blockUser(id: string, actor: AuthUser, reason: string) {
+    if (id === actor.id)
+      throw new ForbiddenException('You cannot block yourself');
+    const target = await this.prisma.user.findUnique({
+      where: { id },
+      include: { roles: true },
+    });
+    if (!target || target.status === 'deleted')
+      throw new NotFoundException('User not found');
+    const targetIsAdmin = target.roles.some(
+      (r) => r.role === 'admin' || r.role === 'super_admin',
+    );
+    if (targetIsAdmin && !actor.roles.includes(Role.super_admin)) {
+      throw new ForbiddenException('Only a super admin can block an admin');
+    }
+    if (target.status === 'blocked')
+      throw new ConflictException('User is already blocked');
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id },
+        data: { status: 'blocked', blockedReason: reason },
+      }),
+      // Signed-in devices lose access as soon as their access token is checked.
+      this.prisma.refreshToken.updateMany({
+        where: { userId: id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      }),
+    ]);
+    await this.audit.log(actor.id, 'user.block', 'user', id, { reason });
+    return { id, status: 'blocked' as const };
+  }
+
+  async unblockUser(id: string, actorId: string) {
+    const target = await this.prisma.user.findUnique({ where: { id } });
+    if (!target || target.status === 'deleted')
+      throw new NotFoundException('User not found');
+    if (target.status !== 'blocked')
+      throw new ConflictException('User is not blocked');
+    await this.prisma.user.update({
+      where: { id },
+      data: { status: 'active', blockedReason: null },
+    });
+    await this.audit.log(actorId, 'user.unblock', 'user', id);
+    return { id, status: 'active' as const };
+  }
+
+  async setVehicleStatus(
+    id: string,
+    status: 'approved' | 'rejected',
+    actorId: string,
+  ) {
+    const vehicle = await this.prisma.vehicle.findUnique({
+      where: { id },
+      include: { documents: { select: { type: true, vehicleId: true } } },
+    });
     if (!vehicle) throw new NotFoundException('Vehicle not found');
-    return this.prisma.vehicle.update({ where: { id }, data: { status } });
+    if (status === 'approved') {
+      const missing = this.requirements.missing([vehicle], vehicle.documents);
+      // Only the vehicle's own papers matter here, not the driver's.
+      const vehicleMissing = missing.filter((m) => m.vehicleId);
+      if (vehicleMissing.length) {
+        throw new BadRequestException({
+          message: 'Required documents are missing',
+          missing: vehicleMissing,
+        });
+      }
+    }
+    const updated = await this.prisma.vehicle.update({
+      where: { id },
+      data: { status },
+    });
+    await this.audit.log(
+      actorId,
+      `vehicle.${status === 'approved' ? 'approve' : 'reject'}`,
+      'vehicle',
+      id,
+    );
+    return updated;
   }
 }
