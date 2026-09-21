@@ -7,6 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
+import { DomainEvents } from '../events/domain-events.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { detectFileType } from '../common/file-type.js';
 import { ratingView } from '../rides/rating.js';
@@ -25,6 +26,7 @@ export class UsersService {
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
     private readonly audit: AuditService,
+    private readonly events: DomainEvents,
   ) {}
 
   async getMe(userId: string) {
@@ -160,6 +162,7 @@ export class UsersService {
       }),
     ]);
     await this.audit.log(userId, 'user.delete', 'user', userId);
+    this.events.emit('user.deleted', { userId });
     const keys = documents.map((d) => d.storageKey);
     if (user.avatarKey) keys.push(user.avatarKey);
     await this.removeQuietly(keys);

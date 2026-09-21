@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { Role } from '../generated/prisma/enums.js';
 import type { AuthUser } from '../common/decorators/current-user.decorator.js';
+import { DomainEvents } from '../events/domain-events.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { DriverDocumentsService } from '../drivers/driver-documents.service.js';
 import { DriverRequirementsService } from '../drivers/driver-requirements.js';
@@ -26,6 +27,7 @@ export class AdminService {
     private readonly documents: DriverDocumentsService,
     private readonly requirements: DriverRequirementsService,
     private readonly audit: AuditService,
+    private readonly events: DomainEvents,
   ) {}
 
   async listUsers({ page, limit, search }: ListUsersDto) {
@@ -227,6 +229,7 @@ export class AdminService {
       }),
     ]);
     await this.audit.log(actor.id, 'user.block', 'user', id, { reason });
+    this.events.emit('user.blocked', { userId: id });
     return { id, status: 'blocked' as const };
   }
 
