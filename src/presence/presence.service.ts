@@ -9,6 +9,7 @@ import {
   startOfBusinessDay,
   DEFAULT_TZ_OFFSET_MINUTES,
 } from '../common/time.js';
+import { DomainEvents } from '../events/domain-events.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { DriverLocationStore } from './driver-location.store.js';
 import { GoOnlineDto, LocationUpdateDto } from './dto/presence.dto.js';
@@ -21,6 +22,7 @@ export class PresenceService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly store: DriverLocationStore,
+    private readonly events: DomainEvents,
     config: ConfigService,
   ) {
     this.tzOffset = Number(
@@ -86,6 +88,12 @@ export class PresenceService {
     await this.store.updateLocation(userId, dto, {
       heading: dto.heading,
       speedKmh: dto.speedKmh,
+    });
+    this.events.emit('driver.location', {
+      userId,
+      lat: dto.lat,
+      lng: dto.lng,
+      busy: presence.busy,
     });
     return { ok: true };
   }
