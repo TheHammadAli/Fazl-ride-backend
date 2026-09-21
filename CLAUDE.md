@@ -46,6 +46,15 @@ Source spec: `FAZL Drivedocx.pdf` (34 sections, in `~/Documents/fazl`, next to t
 
 Other libs planned: Passport JWT, class-validator, Swagger, Throttler, BullMQ (later), Firebase Admin (FCM push), an SMS provider for OTP (undecided, Twilio is expensive in Pakistan).
 
+## Design principle: integration-first (user requirement, 2026-09-21)
+The platform must stay flexible so **any external system or new module can be integrated through the API**. Rules to follow when building anything:
+1. **Modular monolith.** Each domain (auth/users, drivers, parking, rides, order-tracking, ...) is a self-contained Nest module: own controller, service, DTOs. Other modules use its exported service, never its Prisma tables. Adding a module = adding a folder and one import in `AppModule`.
+2. **Two ways in, one set of rules.** User apps use JWT (roles). External systems (FAZL app, parking sensors/software, partners) use **API keys with scopes** (e.g. `parking:write`, `orders:read`), hashed at rest, revocable, with `lastUsedAt` and per-key rate limits. Admin endpoints create/revoke keys. A guard accepts either a JWT or an API key on the routes meant for both.
+3. **Provider adapters for everything external.** Storage (`StorageService`), SMS (`SmsProvider`) already work this way. Parking availability (manual now, sensors later) and FAZL order status will too. New integration = new adapter class, no change to business logic.
+4. **Stable, documented contract.** Versioned (`/api/v1`), Swagger/OpenAPI is the source of truth (partners can generate clients from `/docs-json`), consistent pagination and error shape, `Idempotency-Key` on external POSTs that create things.
+5. **Events out.** Important state changes (driver approved, parking availability changed, order status changed) should be emitted as domain events so outbound webhooks or push notifications can subscribe without touching the module that raised them.
+6. **Config over code.** Statuses, thresholds (e.g. parking "Limited"), fare rules, required documents live in config/DB where the business is likely to change them.
+
 ## Phases (single developer estimates)
 0. Setup: NestJS + Prisma + local Postgres/PostGIS, `/health`, Swagger, `.env`, API contract (~3-4 days)
 1. Foundation: OTP login, JWT, roles, profile, Become a Driver + vehicle/document upload to Supabase Storage, admin approval endpoints (~2 weeks)
@@ -95,8 +104,16 @@ All routes are under `/api/v1`, Swagger at `/docs`.
 - Tests: `npm test` (phone normalizer), `npm run test:e2e` (validation + 401 guards, no DB needed). The full flow (OTP, apply, duplicate CNIC/plate, approve/reject, re-apply, refresh rotation and replay, admin routes) was verified by hand against the local DB on 2026-09-21; that script is not in the repo. Prisma 7 + pg adapter puts the violated constraint name in `error.meta.driverAdapterError.cause.constraint.index`.
 - Auth throttle: `otp/request` is limited to 5/min per IP, so scripted tests need pauses.
 
+- **Accounts milestone (2026-09-21, all verified on real Supabase):**
+  - Approval requires documents: default `cnic_front, cnic_back, license_front, selfie` + `vehicle_registration` per vehicle, overridable with `DRIVER_REQUIRED_DOCUMENTS`. `GET drivers/me` returns `missingDocuments`; admin approve of a driver or vehicle returns 400 with the missing list.
+  - Admin: `POST admin/users/:id/block|unblock` (blocking revokes refresh tokens; only super_admin can block an admin; cannot block yourself), `POST admin/drivers/:id/suspend|reinstate`. Every admin action writes an `AuditLog` row.
+  - Users: `POST/DELETE users/me/avatar` (JPEG/PNG/WebP, 2 MB, returned as a signed `avatarUrl`), `DELETE users/me` (account deletion required by the stores: anonymises the row, erases driver profile/documents/avatar, frees the phone; admins cannot self-delete). `JwtStrategy` accepts only `status = active`.
+  - Drivers: `DELETE drivers/me/vehicles/:id` (never the only vehicle).
+  - **API keys** for external systems: `POST/GET admin/api-keys`, `POST admin/api-keys/:id/revoke` (super_admin only). Key format `fzl_<8hex>_<secret>`, shown once, only a SHA-256 hash stored, scopes like `parking:write` / `orders:*` / `*`, optional expiry. Protect integration routes with `@UseGuards(ApiKeyGuard)` + `@Scopes('x:read')` and header `x-api-key`; import `ApiKeysModule`. `GET integrations/ping` (scope `ping:read`) is the reference route.
+- Migrations are generated against local Postgres (needs a shadow DB): `DATABASE_URL=postgresql://mc@localhost:5432/fazl DIRECT_URL=<same> DATABASE_SSL_CA= npx prisma migrate dev --name x`, then `npx prisma migrate deploy` uses `.env` (Supabase).
+- Agreed build order (user): accounts (done) -> **ride booking** -> parking -> order tracking (FAZL integration). Ride business rules must be confirmed with the user before coding (Section 32): fare rules, cancellation, matching, timeouts, categories, commission, cashout.
+
 ## Not built yet
 - Verified end to end on real Supabase (DB + Storage) on 2026-09-21: login, apply, upload/replace/list documents, signed URLs, admin detail and approve, refresh rotation. Note a replaced file's old signed URL can still work briefly because of Supabase's CDN cache, even though the object is deleted.
-- Open: should approval require all documents to be uploaded? Currently it does not.
 - Real SMS provider, FCM push, API-key auth for external systems
 - Parking module (Phase 2), rides (Phase 3), FAZL integration (Phase 4)
