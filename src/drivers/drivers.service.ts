@@ -5,11 +5,15 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { DriverDocumentsService } from './driver-documents.service.js';
 import { ApplyDriverDto, VehicleDto } from './dto/driver.dto.js';
 
 @Injectable()
 export class DriversService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly documents: DriverDocumentsService,
+  ) {}
 
   // "Become a Driver": creates a pending profile plus the first vehicle.
   // A rejected applicant may apply again; anyone else already has a profile.
@@ -23,8 +27,10 @@ export class DriversService {
       );
     }
 
+    // Re-applying drops the old vehicles; their registration files go with them.
+    let staleKeys: string[] = [];
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      const result = await this.prisma.$transaction(async (tx) => {
         const data = {
           cnic: dto.cnic,
           licenseNumber: dto.licenseNumber,
@@ -37,6 +43,11 @@ export class DriversService {
           ? await tx.driverProfile.update({ where: { userId }, data })
           : await tx.driverProfile.create({ data: { userId, ...data } });
         if (existing) {
+          const stale = await tx.driverDocument.findMany({
+            where: { driverProfileId: profile.id, vehicleId: { not: null } },
+            select: { storageKey: true },
+          });
+          staleKeys = stale.map((d) => d.storageKey);
           await tx.vehicle.deleteMany({
             where: { driverProfileId: profile.id },
           });
@@ -49,6 +60,8 @@ export class DriversService {
           include: { vehicles: true },
         });
       });
+      await this.documents.removeQuietly(staleKeys);
+      return result;
     } catch (error: any) {
       throw this.uniqueConflict(error) ?? error;
     }
