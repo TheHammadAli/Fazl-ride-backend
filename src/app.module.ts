@@ -15,6 +15,7 @@ import { DomainEventsModule } from './events/domain-events.module.js';
 import { DriversModule } from './drivers/drivers.module.js';
 import { HealthController } from './health/health.controller.js';
 import { PresenceModule } from './presence/presence.module.js';
+import { RealtimeModule } from './realtime/realtime.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { RidesModule } from './rides/rides.module.js';
 import { StorageModule } from './storage/storage.module.js';
@@ -41,6 +42,7 @@ import { UsersModule } from './users/users.module.js';
     DriversModule,
     PresenceModule,
     RidesModule,
+    RealtimeModule,
     AdminModule,
   ],
   controllers: [HealthController],
