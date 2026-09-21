@@ -216,3 +216,35 @@ model FareConfig {
 
   @@map("fare_configs")
 }
+
+// Live state of a driver in Driver mode: online/offline, the vehicle in use and
+// the last known position. `location` is a PostGIS geography written with raw
+// SQL (Prisma cannot write Unsupported columns).
+model DriverPresence {
+  userId            String          @id @db.Uuid
+  vehicleId         String          @db.Uuid
+  category          VehicleCategory
+  isOnline          Boolean         @default(false)
+  busy              Boolean         @default(false)
+  location          Unsupported("geography(Point,4326)")?
+  heading           Float?
+  speedKmh          Float?
+  locationUpdatedAt DateTime?
+  onlineSince       DateTime?
+  updatedAt         DateTime        @updatedAt
+
+  @@index([location], type: Gist)
+  @@index([isOnline, category])
+  @@map("driver_presence")
+}
+
+// One row per stretch of being online, used for "Online Hours" on the dashboard.
+model DriverSession {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  startedAt DateTime  @default(now())
+  endedAt   DateTime?
+
+  @@index([userId, startedAt])
+  @@map("driver_sessions")
+}
