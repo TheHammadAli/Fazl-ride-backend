@@ -41,8 +41,13 @@ describe('API surface (e2e)', () => {
       .send({ phone: '03001234567', role: 'admin' })
       .expect(400));
 
-  it.each(['/api/v1/users/me', '/api/v1/drivers/me', '/api/v1/admin/users'])(
-    'GET %s requires a token',
-    (path) => request(app.getHttpServer()).get(path).expect(401),
+  it.each([
+    '/api/v1/users/me',
+    '/api/v1/drivers/me',
+    '/api/v1/admin/users',
+    '/api/v1/admin/api-keys',
+    '/api/v1/integrations/ping',
+  ])('GET %s requires a token', (path) =>
+    request(app.getHttpServer()).get(path).expect(401),
   );
 });
