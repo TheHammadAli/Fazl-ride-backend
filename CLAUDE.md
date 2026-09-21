@@ -98,8 +98,13 @@ Source: the combined design image the user shared (Passenger app, Driver app, FA
 - Details: photo, name/area, Total / Available / Occupied, price per hour, operating hours, **Navigate**, **Reserve** (future, show "Coming soon").
 - Availability list statuses **Available / Limited / Full**. From the mockup: 27/100 Available, 12/60 (20%) Available, 5/50 (10%) **Limited**, 0/80 Full. So the Limited threshold sits between 10% and 20%; proposed default **available <= 15% of total = Limited**, kept in config. Full = 0 available.
 
+## Decisions from the design review (2026-09-21)
+- **Login:** mobile OTP stays the identity (required for drivers). No password. Google/Apple sign-in is added later as an extra way to log in; if Google is offered, Apple must be too (App Store rule). The Password field and "Forgot password" in the mockup are dropped.
+- **Earnings:** no platform commission for now. A driver's earnings are the full fare, kept in a ledger for display only; the mockup's "Cashout" row stays hidden until wallet/online payments exist. Commission % and payouts are a later phase.
+- Parking "Limited" = available <= 15% of total (config).
+
 ## Open questions
-- SMS/OTP provider; OTP only vs password; social login
+- SMS/OTP provider (still open)
 - Fare rules (base, per-km, per-category) and admin configurability
 - Cashout/payout behaviour and platform commission (see the earnings note above)
 - FAZL: API docs, whether FAZL users log in with the same account (SSO), and how Track Order opens our screens
