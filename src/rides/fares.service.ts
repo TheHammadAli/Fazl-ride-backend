@@ -7,6 +7,7 @@ import { haversineMeters } from '../common/geo.js';
 import type { LatLng } from '../common/geo.js';
 import { VehicleCategory } from '../generated/prisma/enums.js';
 import { AuditService } from '../audit/audit.service.js';
+import { DriverLocationStore } from '../presence/driver-location.store.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { UpdateFareConfigDto } from './dto/fare-config.dto.js';
 import { calculateFare } from './fare.calculator.js';
@@ -14,12 +15,15 @@ import { RoutingProvider } from './routing/routing.provider.js';
 
 const MIN_TRIP_METERS = 50;
 const MAX_TRIP_METERS = 200_000;
+// Drivers further than this from the pickup are not shown as "nearby".
+const NEARBY_RADIUS_METERS = 5_000;
 
 @Injectable()
 export class FaresService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly routing: RoutingProvider,
+    private readonly locations: DriverLocationStore,
     private readonly audit: AuditService,
   ) {}
 
@@ -60,23 +64,44 @@ export class FaresService {
         'Trips longer than 200 km are not supported',
       );
     }
-    const [route, configs] = await Promise.all([
+    const [route, configs, nearby] = await Promise.all([
       this.routing.route(pickup, dropoff),
       this.listConfigs(),
+      this.locations.findNearby({
+        ...pickup,
+        radiusMeters: NEARBY_RADIUS_METERS,
+        limit: 50,
+      }),
     ]);
+    const estimates = await Promise.all(
+      configs.map(async (config) => {
+        const drivers = nearby.filter((d) => d.category === config.category);
+        const nearest = drivers[0]; // already ordered by distance
+        const toPickup = nearest
+          ? await this.routing.route(
+              { lat: nearest.lat, lng: nearest.lng },
+              pickup,
+            )
+          : null;
+        return {
+          category: config.category,
+          fare: calculateFare(
+            config,
+            route.distanceMeters,
+            route.durationSeconds,
+          ),
+          cancellationFee: config.cancellationFee,
+          nearbyDrivers: drivers.length,
+          pickupEtaSeconds: toPickup?.durationSeconds ?? null,
+          pickupDistanceMeters: toPickup?.distanceMeters ?? null,
+        };
+      }),
+    );
     return {
       distanceMeters: route.distanceMeters,
       durationSeconds: route.durationSeconds,
       currency: 'PKR',
-      estimates: configs.map((config) => ({
-        category: config.category,
-        fare: calculateFare(
-          config,
-          route.distanceMeters,
-          route.durationSeconds,
-        ),
-        cancellationFee: config.cancellationFee,
-      })),
+      estimates,
     };
   }
 }
