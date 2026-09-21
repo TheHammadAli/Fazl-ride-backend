@@ -36,10 +36,10 @@ enum VehicleStatus {
   rejected
 }
 
+// Pakistan runs on two vehicle types only. The passenger picks the one they want.
 enum VehicleCategory {
-  economy
-  comfort
-  xl
+  bike
+  car
 }
 
 enum DocumentType {
@@ -143,7 +143,7 @@ model DriverProfile {
 model Vehicle {
   id              String          @id @default(uuid()) @db.Uuid
   driverProfileId String          @db.Uuid
-  category        VehicleCategory @default(economy)
+  category        VehicleCategory @default(car)
   make            String
   model           String
   year            Int
