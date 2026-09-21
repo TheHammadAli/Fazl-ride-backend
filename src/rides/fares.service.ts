@@ -51,8 +51,7 @@ export class FaresService {
     return updated;
   }
 
-  // Price for every category for one route, so the app can show them side by side.
-  async estimate(pickup: LatLng, dropoff: LatLng) {
+  private assertReasonableTrip(pickup: LatLng, dropoff: LatLng) {
     const straight = haversineMeters(pickup, dropoff);
     if (straight < MIN_TRIP_METERS) {
       throw new BadRequestException(
@@ -64,6 +63,27 @@ export class FaresService {
         'Trips longer than 200 km are not supported',
       );
     }
+  }
+
+  // Price and route for one category, used when a ride is actually requested.
+  async quote(pickup: LatLng, dropoff: LatLng, category: VehicleCategory) {
+    this.assertReasonableTrip(pickup, dropoff);
+    const [route, config] = await Promise.all([
+      this.routing.route(pickup, dropoff),
+      this.prisma.fareConfig.findUnique({ where: { category } }),
+    ]);
+    if (!config) throw new NotFoundException('Fare config not found');
+    return {
+      distanceMeters: route.distanceMeters,
+      durationSeconds: route.durationSeconds,
+      fare: calculateFare(config, route.distanceMeters, route.durationSeconds),
+      cancellationFee: config.cancellationFee,
+    };
+  }
+
+  // Price for every category for one route, so the app can show them side by side.
+  async estimate(pickup: LatLng, dropoff: LatLng) {
+    this.assertReasonableTrip(pickup, dropoff);
     const [route, configs, nearby] = await Promise.all([
       this.routing.route(pickup, dropoff),
       this.listConfigs(),

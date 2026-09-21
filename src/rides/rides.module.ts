@@ -5,16 +5,22 @@ import { AdminFaresController } from './admin-fares.controller.js';
 import { FaresService } from './fares.service.js';
 import { HaversineRoutingProvider } from './routing/haversine-routing.provider.js';
 import { RoutingProvider } from './routing/routing.provider.js';
-import { RidesController } from './rides.controller.js';
+import { DriverRidesController, RidesController } from './rides.controller.js';
+import { MatchingService } from './matching.service.js';
+import { RideSettings } from './rides.settings.js';
+import { RidesService } from './rides.service.js';
 
 @Module({
   imports: [AuthModule, PresenceModule],
-  controllers: [RidesController, AdminFaresController],
+  controllers: [RidesController, DriverRidesController, AdminFaresController],
   providers: [
     FaresService,
+    RidesService,
+    MatchingService,
+    RideSettings,
     // Replace this binding to switch to Google Directions or another router.
     { provide: RoutingProvider, useClass: HaversineRoutingProvider },
   ],
-  exports: [FaresService, RoutingProvider],
+  exports: [FaresService, RidesService, MatchingService, RoutingProvider],
 })
 export class RidesModule {}

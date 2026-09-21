@@ -7,6 +7,7 @@ import { ApiKeysModule } from './api-keys/api-keys.module.js';
 import { AuditModule } from './audit/audit.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { validateEnv } from './config/env.validation.js';
+import { DomainEventsModule } from './events/domain-events.module.js';
 import { DriversModule } from './drivers/drivers.module.js';
 import { HealthController } from './health/health.controller.js';
 import { PresenceModule } from './presence/presence.module.js';
@@ -22,6 +23,7 @@ import { UsersModule } from './users/users.module.js';
     PrismaModule,
     StorageModule,
     AuditModule,
+    DomainEventsModule,
     ApiKeysModule,
     AuthModule,
     UsersModule,
