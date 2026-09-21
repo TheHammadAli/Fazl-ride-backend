@@ -35,4 +35,12 @@ describe('required nested objects', () => {
     });
     expect(errors.map((e) => e.property)).toContain('vehicle');
   });
+
+  it('EstimateRideDto accepts the same objects that POST /rides sends (with address)', async () => {
+    const errors = await errorsFor(EstimateRideDto, {
+      pickup: { lat: 31.5, lng: 74.3, address: 'Liberty Market' },
+      dropoff: { lat: 31.4, lng: 74.4, address: 'DHA Phase 5' },
+    });
+    expect(errors).toHaveLength(0);
+  });
 });

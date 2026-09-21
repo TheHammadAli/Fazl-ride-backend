@@ -1,15 +1,30 @@
 import { Type } from 'class-transformer';
-import { IsDefined, ValidateNested } from 'class-validator';
+import {
+  IsDefined,
+  IsOptional,
+  IsString,
+  MaxLength,
+  ValidateNested,
+} from 'class-validator';
 import { LatLngDto } from '../../common/dto/geo.dto.js';
+
+// The app sends the same pickup/drop-off objects to the estimate and to the
+// request, so the estimate accepts the address text too (it just does not need it).
+export class EstimatePlaceDto extends LatLngDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  address?: string;
+}
 
 export class EstimateRideDto {
   @IsDefined()
   @ValidateNested()
-  @Type(() => LatLngDto)
-  pickup: LatLngDto;
+  @Type(() => EstimatePlaceDto)
+  pickup: EstimatePlaceDto;
 
   @IsDefined()
   @ValidateNested()
-  @Type(() => LatLngDto)
-  dropoff: LatLngDto;
+  @Type(() => EstimatePlaceDto)
+  dropoff: EstimatePlaceDto;
 }
