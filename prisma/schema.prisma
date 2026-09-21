@@ -62,9 +62,12 @@ model User {
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 
-  roles         UserRole[]
-  refreshTokens RefreshToken[]
-  driverProfile DriverProfile?
+  roles            UserRole[]
+  refreshTokens    RefreshToken[]
+  driverProfile    DriverProfile?
+  ridesAsPassenger Ride[]         @relation("RidePassenger")
+  ridesAsDriver    Ride[]         @relation("RideDriver")
+  rideOffers       RideOffer[]
 
   @@map("users")
 }
@@ -145,6 +148,7 @@ model Vehicle {
 
   driverProfile DriverProfile    @relation(fields: [driverProfileId], references: [id], onDelete: Cascade)
   documents     DriverDocument[]
+  rides         Ride[]
 
   @@index([driverProfileId])
   @@map("vehicles")
@@ -221,17 +225,17 @@ model FareConfig {
 // the last known position. `location` is a PostGIS geography written with raw
 // SQL (Prisma cannot write Unsupported columns).
 model DriverPresence {
-  userId            String          @id @db.Uuid
-  vehicleId         String          @db.Uuid
+  userId            String                                @id @db.Uuid
+  vehicleId         String                                @db.Uuid
   category          VehicleCategory
-  isOnline          Boolean         @default(false)
-  busy              Boolean         @default(false)
+  isOnline          Boolean                               @default(false)
+  busy              Boolean                               @default(false)
   location          Unsupported("geography(Point,4326)")?
   heading           Float?
   speedKmh          Float?
   locationUpdatedAt DateTime?
   onlineSince       DateTime?
-  updatedAt         DateTime        @updatedAt
+  updatedAt         DateTime                              @updatedAt
 
   @@index([location], type: Gist)
   @@index([isOnline, category])
@@ -247,4 +251,107 @@ model DriverSession {
 
   @@index([userId, startedAt])
   @@map("driver_sessions")
+}
+
+enum RideStatus {
+  requested
+  accepted
+  arrived
+  started
+  completed
+  cancelled
+  expired
+}
+
+enum OfferStatus {
+  pending
+  accepted
+  declined
+  expired
+}
+
+enum PaymentMethod {
+  cash
+}
+
+enum CancelledBy {
+  passenger
+  driver
+  system
+}
+
+// A ride from request to completion. Coordinates are plain floats here: the
+// fast spatial search happens on driver_presence, not on rides.
+model Ride {
+  id          String          @id @default(uuid()) @db.Uuid
+  passengerId String          @db.Uuid
+  driverId    String?         @db.Uuid
+  vehicleId   String?         @db.Uuid
+  category    VehicleCategory
+  status      RideStatus      @default(requested)
+
+  pickupLat      Float
+  pickupLng      Float
+  pickupAddress  String
+  dropoffLat     Float
+  dropoffLng     Float
+  dropoffAddress String
+
+  estimatedDistanceMeters  Int
+  estimatedDurationSeconds Int
+  estimatedFare            Int
+
+  // Filled in when the ride completes (B4).
+  distanceMeters  Int?
+  durationSeconds Int?
+  fare            Int?
+
+  paymentMethod   PaymentMethod @default(cash)
+  cancellationFee Int           @default(0)
+  cancelledBy     CancelledBy?
+  cancelReason    String?
+
+  // Matching: the search widens step by step until someone accepts or the request expires.
+  searchStep         Int      @default(0)
+  searchRadiusMeters Int
+  nextExpandAt       DateTime
+  expiresAt          DateTime
+
+  requestedAt DateTime  @default(now())
+  acceptedAt  DateTime?
+  arrivedAt   DateTime?
+  startedAt   DateTime?
+  completedAt DateTime?
+  cancelledAt DateTime?
+  updatedAt   DateTime  @updatedAt
+
+  passenger User        @relation("RidePassenger", fields: [passengerId], references: [id])
+  driver    User?       @relation("RideDriver", fields: [driverId], references: [id])
+  vehicle   Vehicle?    @relation(fields: [vehicleId], references: [id])
+  offers    RideOffer[]
+
+  @@index([passengerId, status])
+  @@index([driverId, status])
+  @@index([status, expiresAt])
+  @@map("rides")
+}
+
+// One offer of a ride to one driver. The first driver to accept wins.
+model RideOffer {
+  id                     String      @id @default(uuid()) @db.Uuid
+  rideId                 String      @db.Uuid
+  driverId               String      @db.Uuid
+  status                 OfferStatus @default(pending)
+  distanceToPickupMeters Int
+  etaSeconds             Int
+  offeredAt              DateTime    @default(now())
+  expiresAt              DateTime
+  respondedAt            DateTime?
+
+  ride   Ride @relation(fields: [rideId], references: [id], onDelete: Cascade)
+  driver User @relation(fields: [driverId], references: [id])
+
+  @@unique([rideId, driverId])
+  @@index([driverId, status])
+  @@map("ride_offers")
 }
