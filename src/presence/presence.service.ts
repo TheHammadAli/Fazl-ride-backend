@@ -12,6 +12,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service.js';
 import { DriverLocationStore } from './driver-location.store.js';
 import { GoOnlineDto, LocationUpdateDto } from './dto/presence.dto.js';
+import { onlineSecondsSince } from './online-time.js';
 
 @Injectable()
 export class PresenceService {
@@ -109,11 +110,6 @@ export class PresenceService {
     const sessions = await this.prisma.driverSession.findMany({
       where: { userId, OR: [{ endedAt: null }, { endedAt: { gt: dayStart } }] },
     });
-    const ms = sessions.reduce((sum, s) => {
-      const from = Math.max(s.startedAt.getTime(), dayStart.getTime());
-      const to = (s.endedAt ?? now).getTime();
-      return sum + Math.max(0, to - from);
-    }, 0);
-    return Math.round(ms / 1000);
+    return onlineSecondsSince(sessions, dayStart, now);
   }
 }
