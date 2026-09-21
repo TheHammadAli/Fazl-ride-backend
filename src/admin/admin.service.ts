@@ -4,17 +4,22 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Role } from '../generated/prisma/enums.js';
+import { DriverDocumentsService } from '../drivers/driver-documents.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ListDriversDto, ListUsersDto } from './dto/admin.dto.js';
 
 const driverInclude = {
   user: { select: { id: true, phone: true, name: true, email: true } },
   vehicles: true,
+  documents: { orderBy: { createdAt: 'asc' } },
 } as const;
 
 @Injectable()
 export class AdminService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly documents: DriverDocumentsService,
+  ) {}
 
   async listUsers({ page, limit, search }: ListUsersDto) {
     const where = search
@@ -53,7 +58,17 @@ export class AdminService {
     return { items, total, page, limit };
   }
 
+  // Detail view: includes signed, short-lived links to the uploaded papers.
   async getDriver(id: string) {
+    const profile = await this.findDriver(id);
+    return {
+      ...profile,
+      documents: await this.documents.withUrls(profile.documents),
+    };
+  }
+
+  // Plain lookup with no storage calls, so approvals never depend on storage.
+  private async findDriver(id: string) {
     const profile = await this.prisma.driverProfile.findUnique({
       where: { id },
       include: driverInclude,
@@ -65,7 +80,7 @@ export class AdminService {
   // Approving a driver also approves the vehicles they applied with and
   // grants the `driver` role, which unlocks Driver mode in the app.
   async approveDriver(id: string, adminId: string) {
-    const profile = await this.getDriver(id);
+    const profile = await this.findDriver(id);
     if (profile.status === 'approved') {
       throw new ConflictException('Driver is already approved');
     }
@@ -89,11 +104,11 @@ export class AdminService {
         create: { userId: profile.userId, role: Role.driver },
       }),
     ]);
-    return this.getDriver(id);
+    return this.findDriver(id);
   }
 
   async rejectDriver(id: string, adminId: string, reason: string) {
-    const profile = await this.getDriver(id);
+    const profile = await this.findDriver(id);
     if (profile.status === 'rejected') {
       throw new ConflictException('Driver is already rejected');
     }
@@ -116,7 +131,7 @@ export class AdminService {
         where: { userId: profile.userId, role: Role.driver },
       }),
     ]);
-    return this.getDriver(id);
+    return this.findDriver(id);
   }
 
   async setVehicleStatus(id: string, status: 'approved' | 'rejected') {
