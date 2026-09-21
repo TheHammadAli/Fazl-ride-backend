@@ -203,3 +203,16 @@ model AuditLog {
   @@index([actorId])
   @@map("audit_logs")
 }
+
+// Fare rules per vehicle category, in PKR whole rupees (rates per km / minute can be fractional).
+model FareConfig {
+  category        VehicleCategory @id
+  baseFare        Int
+  perKm           Float
+  perMinute       Float
+  minimumFare     Int
+  cancellationFee Int
+  updatedAt       DateTime        @updatedAt
+
+  @@map("fare_configs")
+}
