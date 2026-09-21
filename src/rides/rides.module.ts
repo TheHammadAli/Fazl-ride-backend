@@ -7,6 +7,7 @@ import { HaversineRoutingProvider } from './routing/haversine-routing.provider.j
 import { RoutingProvider } from './routing/routing.provider.js';
 import { DriverRidesController, RidesController } from './rides.controller.js';
 import { MatchingService } from './matching.service.js';
+import { TripTrackerService } from './trip-tracker.service.js';
 import { RideSettings } from './rides.settings.js';
 import { RidesService } from './rides.service.js';
 
@@ -17,6 +18,7 @@ import { RidesService } from './rides.service.js';
     FaresService,
     RidesService,
     MatchingService,
+    TripTrackerService,
     RideSettings,
     // Replace this binding to switch to Google Directions or another router.
     { provide: RoutingProvider, useClass: HaversineRoutingProvider },

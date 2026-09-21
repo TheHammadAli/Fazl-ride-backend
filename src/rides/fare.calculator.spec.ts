@@ -5,7 +5,6 @@ const economy = {
   perKm: 30,
   perMinute: 3,
   minimumFare: 150,
-  cancellationFee: 100,
 };
 
 describe('calculateFare', () => {

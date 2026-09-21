@@ -3,11 +3,13 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { haversineMeters } from '../common/geo.js';
 import { DomainEvents } from '../events/domain-events.service.js';
-import { VehicleCategory } from '../generated/prisma/enums.js';
+import { RideStatus, VehicleCategory } from '../generated/prisma/enums.js';
 import { DriverLocationStore } from '../presence/driver-location.store.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CancelRideDto, RequestRideDto } from './dto/request-ride.dto.js';
+import { calculateFare } from './fare.calculator.js';
 import { FaresService } from './fares.service.js';
 import { MatchingService } from './matching.service.js';
 import {
@@ -17,9 +19,15 @@ import {
 } from './ride.presenter.js';
 import { RoutingProvider } from './routing/routing.provider.js';
 import { RideSettings } from './rides.settings.js';
+import { billedDistanceMeters, FareRatesSnapshot } from './trip-distance.js';
 
-const IN_PROGRESS = ['requested', 'accepted', 'arrived', 'started'] as const;
-const DRIVER_ACTIVE = ['accepted', 'arrived', 'started'] as const;
+const IN_PROGRESS: RideStatus[] = [
+  'requested',
+  'accepted',
+  'arrived',
+  'started',
+];
+const DRIVER_ACTIVE: RideStatus[] = ['accepted', 'arrived', 'started'];
 
 @Injectable()
 export class RidesService {
@@ -52,6 +60,7 @@ export class RidesService {
           estimatedDistanceMeters: quote.distanceMeters,
           estimatedDurationSeconds: quote.durationSeconds,
           estimatedFare: quote.fare,
+          rates: quote.rates,
           searchRadiusMeters: this.settings.radiiMeters[0],
           nextExpandAt: new Date(
             now.getTime() + this.settings.offerTtlSeconds * 1000,
@@ -65,7 +74,7 @@ export class RidesService {
     } catch (error: any) {
       if (error?.code === 'P2002') {
         const active = await this.prisma.ride.findFirst({
-          where: { passengerId, status: { in: [...IN_PROGRESS] } },
+          where: { passengerId, status: { in: IN_PROGRESS } },
           select: { id: true },
         });
         throw new ConflictException({
@@ -89,8 +98,8 @@ export class RidesService {
     const ride = await this.prisma.ride.findFirst({
       where:
         as === 'passenger'
-          ? { passengerId: userId, status: { in: [...IN_PROGRESS] } }
-          : { driverId: userId, status: { in: [...DRIVER_ACTIVE] } },
+          ? { passengerId: userId, status: { in: IN_PROGRESS } }
+          : { driverId: userId, status: { in: DRIVER_ACTIVE } },
       include: rideInclude,
     });
     return { ride: ride ? await this.view(ride) : null };
@@ -103,36 +112,6 @@ export class RidesService {
     });
     if (!ride) throw new NotFoundException('Ride not found');
     return this.view(ride);
-  }
-
-  // B3 covers cancelling a request nobody has accepted; later states come with B4.
-  async cancel(userId: string, id: string, dto: CancelRideDto) {
-    const now = new Date();
-    const result = await this.prisma.ride.updateMany({
-      where: { id, passengerId: userId, status: 'requested' },
-      data: {
-        status: 'cancelled',
-        cancelledBy: 'passenger',
-        cancelReason: dto.reason,
-        cancelledAt: now,
-      },
-    });
-    if (result.count === 0) {
-      const existing = await this.prisma.ride.findFirst({
-        where: { id, passengerId: userId },
-        select: { status: true },
-      });
-      if (!existing) throw new NotFoundException('Ride not found');
-      throw new ConflictException(
-        `A ride that is ${existing.status} cannot be cancelled here`,
-      );
-    }
-    await this.prisma.rideOffer.updateMany({
-      where: { rideId: id, status: 'pending' },
-      data: { status: 'expired', respondedAt: now },
-    });
-    this.events.emit('ride.cancelled', { rideId: id, by: 'passenger' });
-    return this.get(userId, id);
   }
 
   // Offers waiting for this driver's answer, newest first.
@@ -172,12 +151,7 @@ export class RidesService {
         // Lock the ride first: concurrent accepts for the same ride then run one
         // after another (the loser sees it taken) instead of deadlocking on the
         // offer rows they would otherwise lock in opposite orders.
-        const locked = await tx.$queryRaw<
-          { category: VehicleCategory; status: string }[]
-        >`SELECT "category", "status"::text AS "status" FROM rides
-          WHERE "id" = ${rideId}::uuid FOR UPDATE`;
-        const ride = locked[0];
-        if (!ride) throw new NotFoundException('Ride not found');
+        const ride = await this.lockRide(tx, rideId);
         if (ride.status !== 'requested') {
           throw new ConflictException(
             'This ride was taken by another driver or cancelled',
@@ -249,24 +223,315 @@ export class RidesService {
     return { message: 'Offer declined' };
   }
 
-  // Adds the driver's live position and pickup ETA while they are on their way.
-  private async view(ride: RideWithRelations) {
-    if (
-      !ride.driverId ||
-      !['accepted', 'arrived', 'started'].includes(ride.status)
-    ) {
-      return presentRide(ride);
+  // Driver: "I am at the pickup". Must really be there (last known position).
+  async arrived(driverId: string, rideId: string) {
+    const ride = await this.ownRide(
+      driverId,
+      rideId,
+      ['accepted'],
+      'arrive at the pickup',
+    );
+    const position = await this.locations.getLocation(driverId);
+    if (!position) {
+      throw new ConflictException(
+        'Your location is unknown. Keep the app open and try again',
+      );
     }
+    const away = Math.round(
+      haversineMeters(position, { lat: ride.pickupLat, lng: ride.pickupLng }),
+    );
+    if (away > this.settings.arrivalRadiusMeters) {
+      throw new ConflictException(
+        `You are ${away} m from the pickup; get within ${this.settings.arrivalRadiusMeters} m first`,
+      );
+    }
+    await this.transition(driverId, rideId, 'accepted', {
+      status: 'arrived',
+      arrivedAt: new Date(),
+    });
+    this.events.emit('ride.arrived', { rideId, driverId });
+    return this.get(driverId, rideId);
+  }
+
+  // Driver: passenger is in the car. Distance tracking starts from here.
+  async start(driverId: string, rideId: string) {
+    await this.ownRide(driverId, rideId, ['arrived'], 'start the ride');
+    const position = await this.locations.getLocation(driverId);
+    await this.transition(driverId, rideId, 'arrived', {
+      status: 'started',
+      startedAt: new Date(),
+      trackedMeters: 0,
+      lastLat: position?.lat ?? null,
+      lastLng: position?.lng ?? null,
+    });
+    this.events.emit('ride.started', { rideId, driverId });
+    return this.get(driverId, rideId);
+  }
+
+  // Driver: drop-off reached. The fare is computed from what was actually driven.
+  async complete(driverId: string, rideId: string) {
+    const ride = await this.ownRide(
+      driverId,
+      rideId,
+      ['started'],
+      'complete the ride',
+    );
+    const now = new Date();
+    const position = await this.locations.getLocation(driverId);
+    const straightLine = position
+      ? haversineMeters({ lat: ride.pickupLat, lng: ride.pickupLng }, position)
+      : 0;
+    const distanceMeters = billedDistanceMeters(
+      ride.trackedMeters,
+      straightLine,
+      ride.estimatedDistanceMeters,
+    );
+    const durationSeconds = Math.max(
+      1,
+      Math.round((now.getTime() - (ride.startedAt ?? now).getTime()) / 1000),
+    );
+    const rates =
+      (ride.rates as FareRatesSnapshot | null) ??
+      (await this.currentRates(ride.category));
+    const fare = Math.min(
+      calculateFare(rates, distanceMeters, durationSeconds),
+      Math.round(ride.estimatedFare * this.settings.maxFareFactor),
+    );
+
+    await this.prisma.$transaction(async (tx) => {
+      const done = await tx.ride.updateMany({
+        where: { id: rideId, driverId, status: 'started' },
+        data: {
+          status: 'completed',
+          completedAt: now,
+          distanceMeters,
+          durationSeconds,
+          fare,
+        },
+      });
+      if (done.count === 0)
+        throw new ConflictException('This ride is no longer in progress');
+      await tx.$executeRaw`
+        UPDATE driver_presence SET "busy" = false, "updatedAt" = now()
+        WHERE "userId" = ${driverId}::uuid`;
+    });
+    this.events.emit('ride.completed', { rideId, driverId, fare });
+    return this.get(driverId, rideId);
+  }
+
+  // Either person on the ride can cancel until it has started. There is no
+  // cancellation fee: rides are cash only, so there is nothing to charge.
+  async cancel(userId: string, rideId: string, dto: CancelRideDto) {
+    const ride = await this.prisma.ride.findFirst({
+      where: {
+        id: rideId,
+        OR: [{ passengerId: userId }, { driverId: userId }],
+      },
+      select: { passengerId: true, driverId: true, status: true },
+    });
+    if (!ride) throw new NotFoundException('Ride not found');
+    if (ride.passengerId === userId)
+      return this.cancelByPassenger(userId, rideId, dto);
+    return this.cancelByDriver(userId, rideId, dto);
+  }
+
+  private async cancelByPassenger(
+    passengerId: string,
+    rideId: string,
+    dto: CancelRideDto,
+  ) {
+    const now = new Date();
+    let driverId: string | null = null;
+    let from: RideStatus = 'requested';
+    await this.prisma.$transaction(async (tx) => {
+      const ride = await this.lockRide(tx, rideId);
+      if (!['requested', 'accepted', 'arrived'].includes(ride.status)) {
+        throw new ConflictException(
+          ride.status === 'started'
+            ? 'The ride has already started. Ask the driver to end it at your destination'
+            : `A ride that is ${ride.status} cannot be cancelled`,
+        );
+      }
+      from = ride.status;
+      driverId = ride.driverId;
+      await tx.ride.update({
+        where: { id: rideId },
+        data: {
+          status: 'cancelled',
+          cancelledBy: 'passenger',
+          cancelledFromStatus: from,
+          cancelReason: dto.reason,
+          cancelledAt: now,
+        },
+      });
+      await tx.rideOffer.updateMany({
+        where: { rideId, status: 'pending' },
+        data: { status: 'expired', respondedAt: now },
+      });
+      if (driverId) {
+        // The driver is free again and can take another ride.
+        await tx.$executeRaw`
+          UPDATE driver_presence SET "busy" = false, "updatedAt" = now()
+          WHERE "userId" = ${driverId}::uuid`;
+      }
+    });
+    this.events.emit('ride.cancelled', {
+      rideId,
+      by: 'passenger',
+      from,
+      driverId,
+    });
+    return this.get(passengerId, rideId);
+  }
+
+  // A driver backing out does not cancel the passenger's trip: the ride goes
+  // back to `requested` and is offered to other drivers, with a fresh deadline.
+  private async cancelByDriver(
+    driverId: string,
+    rideId: string,
+    dto: CancelRideDto,
+  ) {
+    const now = new Date();
+    let from: RideStatus = 'accepted';
+    let ride!: RideWithRelations;
+    await this.prisma.$transaction(async (tx) => {
+      const locked = await this.lockRide(tx, rideId);
+      if (
+        locked.driverId !== driverId ||
+        !['accepted', 'arrived'].includes(locked.status)
+      ) {
+        throw new ConflictException(
+          locked.status === 'started'
+            ? 'The ride has already started; complete it at the destination'
+            : 'This ride can no longer be cancelled by you',
+        );
+      }
+      from = locked.status;
+      await tx.ride.update({
+        where: { id: rideId },
+        data: {
+          status: 'requested',
+          driverId: null,
+          vehicleId: null,
+          acceptedAt: null,
+          arrivedAt: null,
+          searchStep: 0,
+          searchRadiusMeters: this.settings.radiiMeters[0],
+          nextExpandAt: new Date(
+            now.getTime() + this.settings.offerTtlSeconds * 1000,
+          ),
+          expiresAt: new Date(
+            now.getTime() + this.settings.requestTtlSeconds * 1000,
+          ),
+        },
+      });
+      // Drivers who missed the ride the first time are eligible again; the one
+      // who backed out stays marked so they are not offered it a second time.
+      await tx.rideOffer.deleteMany({ where: { rideId, NOT: { driverId } } });
+      await tx.rideOffer.updateMany({
+        where: { rideId, driverId },
+        data: { status: 'declined', respondedAt: now },
+      });
+      await tx.$executeRaw`
+        UPDATE driver_presence SET "busy" = false, "updatedAt" = now()
+        WHERE "userId" = ${driverId}::uuid`;
+    });
+    ride = await this.prisma.ride.findUniqueOrThrow({
+      where: { id: rideId },
+      include: rideInclude,
+    });
+    await this.matching.offerRide(ride);
+    this.events.emit('ride.driver_cancelled', {
+      rideId,
+      driverId,
+      from,
+      reason: dto.reason ?? null,
+    });
+    return { message: 'Ride released. It is being offered to other drivers' };
+  }
+
+  // Loads a ride the driver is assigned to and checks it is in an allowed state.
+  private async ownRide(
+    driverId: string,
+    rideId: string,
+    allowed: RideStatus[],
+    action: string,
+  ) {
+    const ride = await this.prisma.ride.findFirst({
+      where: { id: rideId, driverId },
+    });
+    if (!ride) throw new NotFoundException('Ride not found');
+    if (!allowed.includes(ride.status)) {
+      throw new ConflictException(
+        `You cannot ${action} while the ride is ${ride.status}`,
+      );
+    }
+    return ride;
+  }
+
+  // Moves a ride from one status to the next only if nobody changed it meanwhile.
+  private async transition(
+    driverId: string,
+    rideId: string,
+    from: RideStatus,
+    data: Record<string, unknown>,
+  ) {
+    const result = await this.prisma.ride.updateMany({
+      where: { id: rideId, driverId, status: from },
+      data,
+    });
+    if (result.count === 0) {
+      throw new ConflictException(
+        'The ride changed while you were updating it. Refresh and retry',
+      );
+    }
+  }
+
+  private async lockRide(
+    tx: { $queryRaw: PrismaService['$queryRaw'] },
+    rideId: string,
+  ): Promise<{
+    category: VehicleCategory;
+    status: RideStatus;
+    driverId: string | null;
+  }> {
+    const rows = await tx.$queryRaw<
+      {
+        category: VehicleCategory;
+        status: RideStatus;
+        driverId: string | null;
+      }[]
+    >`SELECT "category", "status"::text AS "status", "driverId" FROM rides
+      WHERE "id" = ${rideId}::uuid FOR UPDATE`;
+    if (!rows[0]) throw new NotFoundException('Ride not found');
+    return rows[0];
+  }
+
+  private async currentRates(
+    category: VehicleCategory,
+  ): Promise<FareRatesSnapshot> {
+    return this.prisma.fareConfig.findUniqueOrThrow({ where: { category } });
+  }
+
+  // Adds the driver's live position and pickup ETA/distance while they come to the passenger.
+  private async view(ride: RideWithRelations) {
+    if (!ride.driverId || !DRIVER_ACTIVE.includes(ride.status))
+      return presentRide(ride);
     const driverLocation = await this.locations.getLocation(ride.driverId);
-    const driverEtaSeconds =
-      driverLocation && ride.status === 'accepted'
-        ? (
-            await this.routing.route(driverLocation, {
-              lat: ride.pickupLat,
-              lng: ride.pickupLng,
-            })
-          ).durationSeconds
-        : null;
-    return presentRide(ride, { driverLocation, driverEtaSeconds });
+    let driverEtaSeconds: number | null = null;
+    let driverDistanceToPickupMeters: number | null = null;
+    if (driverLocation && ride.status === 'accepted') {
+      const toPickup = await this.routing.route(driverLocation, {
+        lat: ride.pickupLat,
+        lng: ride.pickupLng,
+      });
+      driverEtaSeconds = toPickup.durationSeconds;
+      driverDistanceToPickupMeters = toPickup.distanceMeters;
+    }
+    return presentRide(ride, {
+      driverLocation,
+      driverEtaSeconds,
+      driverDistanceToPickupMeters,
+    });
   }
 }

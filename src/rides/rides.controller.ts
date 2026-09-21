@@ -74,6 +74,36 @@ export class RidesController {
     return this.rides.accept(user.id, id);
   }
 
+  @Post(':id/arrived')
+  @HttpCode(200)
+  @UseGuards(RolesGuard)
+  @Roles(Role.driver)
+  arrived(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.rides.arrived(user.id, id);
+  }
+
+  @Post(':id/start')
+  @HttpCode(200)
+  @UseGuards(RolesGuard)
+  @Roles(Role.driver)
+  start(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.rides.start(user.id, id);
+  }
+
+  @Post(':id/complete')
+  @HttpCode(200)
+  @UseGuards(RolesGuard)
+  @Roles(Role.driver)
+  complete(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.rides.complete(user.id, id);
+  }
+
   @Post(':id/decline')
   @HttpCode(200)
   @UseGuards(RolesGuard)

@@ -2,8 +2,8 @@ import type { Prisma } from '../generated/prisma/client.js';
 import type { DriverPosition } from '../presence/driver-location.store.js';
 
 export const rideInclude = {
-  passenger: { select: { id: true, name: true } },
-  driver: { select: { id: true, name: true } },
+  passenger: { select: { id: true, name: true, phone: true } },
+  driver: { select: { id: true, name: true, phone: true } },
   vehicle: {
     select: {
       make: true,
@@ -22,7 +22,12 @@ export type RideWithRelations = Prisma.RideGetPayload<{
 export interface RideViewExtras {
   driverLocation?: DriverPosition | null;
   driverEtaSeconds?: number | null;
+  driverDistanceToPickupMeters?: number | null;
 }
+
+// Phone numbers are shared only while a ride is on, and only with the two people on it
+// (the ride can only be read by them), so the Call button in both apps works.
+const PHONE_VISIBLE = ['accepted', 'arrived', 'started'];
 
 // The shape both apps get for a ride. Ratings are added once B5 lands.
 export function presentRide(
@@ -51,14 +56,19 @@ export function presentRide(
       durationSeconds: ride.estimatedDurationSeconds,
     },
     fare: ride.fare,
-    cancellationFee: ride.cancellationFee,
     cancelledBy: ride.cancelledBy,
     cancelReason: ride.cancelReason,
-    passenger: { id: ride.passenger.id, name: ride.passenger.name },
+    cancelledFromStatus: ride.cancelledFromStatus,
+    passenger: {
+      id: ride.passenger.id,
+      name: ride.passenger.name,
+      phone: PHONE_VISIBLE.includes(ride.status) ? ride.passenger.phone : null,
+    },
     driver: ride.driver
       ? {
           id: ride.driver.id,
           name: ride.driver.name,
+          phone: PHONE_VISIBLE.includes(ride.status) ? ride.driver.phone : null,
           vehicle: ride.vehicle,
           location: extras.driverLocation
             ? {
@@ -67,7 +77,9 @@ export function presentRide(
                 heading: extras.driverLocation.heading,
               }
             : null,
+          // While the driver is on the way: how far and how long until pickup.
           etaSeconds: extras.driverEtaSeconds ?? null,
+          distanceToPickupMeters: extras.driverDistanceToPickupMeters ?? null,
         }
       : null,
     requestedAt: ride.requestedAt,

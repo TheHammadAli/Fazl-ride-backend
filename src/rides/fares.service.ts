@@ -77,7 +77,13 @@ export class FaresService {
       distanceMeters: route.distanceMeters,
       durationSeconds: route.durationSeconds,
       fare: calculateFare(config, route.distanceMeters, route.durationSeconds),
-      cancellationFee: config.cancellationFee,
+      // Kept with the ride so the final fare uses the prices the passenger saw.
+      rates: {
+        baseFare: config.baseFare,
+        perKm: config.perKm,
+        perMinute: config.perMinute,
+        minimumFare: config.minimumFare,
+      },
     };
   }
 
@@ -110,7 +116,6 @@ export class FaresService {
             route.distanceMeters,
             route.durationSeconds,
           ),
-          cancellationFee: config.cancellationFee,
           nearbyDrivers: drivers.length,
           pickupEtaSeconds: toPickup?.durationSeconds ?? null,
           pickupDistanceMeters: toPickup?.distanceMeters ?? null,

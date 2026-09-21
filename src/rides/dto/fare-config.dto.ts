@@ -30,11 +30,4 @@ export class UpdateFareConfigDto {
   @Min(0)
   @Max(100_000)
   minimumFare?: number;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  @Max(100_000)
-  cancellationFee?: number;
 }
