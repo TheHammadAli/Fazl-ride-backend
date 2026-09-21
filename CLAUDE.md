@@ -73,12 +73,14 @@ Other libs planned: Passport JWT, class-validator, Swagger, Throttler, BullMQ (l
 - Git repo still has no commits, remote `git@github.com:awais002288/fazl-parking-backend.git`. Nothing committed yet; ask before committing.
 - Kept the `nest new` scaffold (Nest 12, ESM, vitest, oxlint). `npm install` only works with `legacy-peer-deps=true` (in `.npmrc`) because of an npm arborist bug around vitest.
 - Prisma 7.10.0 (`prisma-client` generator into `src/generated/prisma`, gitignored, regenerated on `postinstall`/`prebuild`), `@prisma/adapter-pg`. DB url lives in `prisma.config.ts` (uses `DIRECT_URL`), the app uses `DATABASE_URL`. `.env` exists locally (gitignored); `.env.example` is committed-safe.
-- **Local Postgres 17** installed via Homebrew (`postgresql@17`, keg-only, binaries in `/usr/local/opt/postgresql@17/bin`). Not a login service; start it with `LC_ALL="en_US.UTF-8" /usr/local/opt/postgresql@17/bin/pg_ctl -D /usr/local/var/postgresql@17 -l /usr/local/var/postgresql@17/server.log start` (without `LC_ALL` it dies with "postmaster became multithreaded"). Local user `mc`, no password; db `fazl`; `.env` URL is `postgresql://mc@localhost:5432/fazl`.
+- **Local Postgres 17** (fallback dev DB) installed via Homebrew (`postgresql@17`, keg-only, binaries in `/usr/local/opt/postgresql@17/bin`). Not a login service; start it with `LC_ALL="en_US.UTF-8" /usr/local/opt/postgresql@17/bin/pg_ctl -D /usr/local/var/postgresql@17 -l /usr/local/var/postgresql@17/server.log start` (without `LC_ALL` it dies with "postmaster became multithreaded"). Local user `mc`, no password; db `fazl`; `.env` URL is `postgresql://mc@localhost:5432/fazl`.
 - Migration `20260921050318_init` is created and applied. Use `npm run prisma:migrate -- --name <x>` for schema changes.
 - **PostGIS is NOT installed.** `brew install postgis` compiles ~130 dependencies from source on this Intel/macOS 15 Mac (no bottles), which takes hours. It is only needed from the Parking phase. Options then: find a prebuilt PostGIS (e.g. Postgres.app), or use Supabase's hosted PostGIS for dev. Ask the user.
 - The API boots even without a DB (`/health` reports `database: down`).
 - Machine: Node 22, npm 10, Flutter 3.47, Homebrew. Docker not installed.
-- Supabase: not connected yet. At deploy time create a project, set `DATABASE_URL` (pooled) and `DIRECT_URL` (direct/session pooler) on Render, run `prisma migrate deploy` as pre-deploy.
+- **Supabase is connected (2026-09-21).** Project `vnbuaxojzeucysivdkwd` (Singapore, Free plan: pauses after ~1 week idle). `.env` points `DATABASE_URL` (transaction pooler, 6543) and `DIRECT_URL` (session pooler, 5432) at `aws-0-ap-southeast-1.pooler.supabase.com`, user `postgres.<ref>`. The DB password contains `@`, so it is percent-encoded (`%40`) in `.env`. Do not use the `db.<ref>.supabase.co` direct host (IPv6-only). Local Postgres lines are kept commented in `.env` to switch back. Migrations `init` and `add_driver_documents` are applied on Supabase; all tables have RLS on (auto-RLS was enabled and the Data API was left off, since the app only uses Prisma/Postgres and Storage).
+- **TLS to Supabase:** its CA is not in Node's trust store, so `pg` rejects `sslmode=require`. `DATABASE_SSL_CA=certs/supabase-ca-2021.crt` (public root cert, fingerprint checked against the live server) makes `PrismaService` pass the CA explicitly with full verification. Prisma CLI (migrate) works with plain `sslmode=require`. Unset `DATABASE_SSL_CA` for local Postgres.
+- Storage: private bucket `driver-documents` on the same project; key in `.env` as `SUPABASE_SERVICE_ROLE_KEY` (an `sb_secret_...` key). The user pasted it in chat once, so rotate it (and the DB password, part of which was echoed in a tool output) before launch. Publishable key / JWKS are not used (no Supabase Auth).
 
 ## Built so far (customer + driver foundation)
 All routes are under `/api/v1`, Swagger at `/docs`.
@@ -94,7 +96,7 @@ All routes are under `/api/v1`, Swagger at `/docs`.
 - Auth throttle: `otp/request` is limited to 5/min per IP, so scripted tests need pauses.
 
 ## Not built yet
-- Supabase project is not connected yet: the user must create it, a private bucket `driver-documents`, and fill `DATABASE_URL`, `DIRECT_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` in `.env`, then run `npx prisma migrate deploy`. Until then uploads return 503 "File storage is not configured". Supabase can host PostGIS (enable the extension), which would also solve the local PostGIS problem.
+- Verified end to end on real Supabase (DB + Storage) on 2026-09-21: login, apply, upload/replace/list documents, signed URLs, admin detail and approve, refresh rotation. Note a replaced file's old signed URL can still work briefly because of Supabase's CDN cache, even though the object is deleted.
 - Open: should approval require all documents to be uploaded? Currently it does not.
 - Real SMS provider, FCM push, API-key auth for external systems
 - Parking module (Phase 2), rides (Phase 3), FAZL integration (Phase 4)
