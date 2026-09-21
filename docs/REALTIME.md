@@ -40,6 +40,7 @@ Events sent while the app was offline are **not replayed**. On every `connected`
 | `ride:offer` | driver | offer object (same as items of `GET /drivers/me/offers`) | a ride is offered to this driver |
 | `ride:offer_closed` | driver | `{ rideId, reason }` reason = `taken` \| `cancelled` \| `expired` | an offer disappeared; remove it from the list |
 | `ride:update` | passenger and driver of the ride | ride object (same as `GET /rides/:id`) | any status change: accepted, arrived, started, completed, cancelled, expired, or back to `requested` after the driver backed out |
+| `driver:offline` | driver | `{ reason: "inactive", lastSeenAt }` | the server put this driver offline because no position arrived for 5 minutes; show it and offer "Go Online" |
 | `driver:location` | passenger | `{ rideId, status, lat, lng, etaSeconds, distanceToPickupMeters }` | while a driver is on the way (`accepted`, ETA and distance filled) and during the trip (`started`, both `null`); at most every 1.5 s |
 
 Each person only receives their own events. Phone numbers appear in `ride:update` only while the ride is `accepted`, `arrived` or `started`.
@@ -58,6 +59,14 @@ the driver cannot send a position (for example "Go online before sending locatio
 Send about every 4 seconds while online. `POST /drivers/me/location` still works and does exactly the same.
 
 Everything else (go online/offline, request, accept, decline, arrived, start, complete, cancel, rate) stays on REST.
+
+## Staying online (Driver app)
+
+A driver who is online must keep sending a position. If none arrives for **5 minutes** the server sets the driver **offline**
+(`driver:offline`, and `GET /drivers/me/status` then says `online: false`); the online time ends at the last position received.
+After 60 seconds without a position the driver already stops receiving new offers, so a short tunnel or lift is harmless.
+A driver who is on a ride is never put offline this way. To keep working in the background the app must keep sending
+positions while the screen is off (Android foreground service and background location permission, asked when the driver first goes online).
 
 ## Limits to know about
 
