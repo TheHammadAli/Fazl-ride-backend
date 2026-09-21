@@ -51,6 +51,11 @@ describe('API surface (e2e)', () => {
     '/api/v1/drivers/me/offers',
     '/api/v1/rides/active',
     '/api/v1/drivers/me/active-ride',
+    '/api/v1/drivers/me/dashboard',
+    '/api/v1/drivers/me/earnings',
+    '/api/v1/users/me/activity',
+    '/api/v1/users/me/cancellation-status',
+    '/api/v1/admin/rides',
   ])('GET %s requires a token', (path) =>
     request(app.getHttpServer()).get(path).expect(401),
   );
