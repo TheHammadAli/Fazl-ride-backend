@@ -17,7 +17,7 @@ import { RolesGuard } from '../common/guards/roles.guard.js';
 import { Role } from '../generated/prisma/enums.js';
 import { EstimateRideDto } from './dto/ride.dto.js';
 import { CancelRideDto, RequestRideDto } from './dto/request-ride.dto.js';
-import { BidDto, ChooseOfferDto } from './dto/bid.dto.js';
+import { BidDto, ChooseOfferDto, UpdateOfferDto } from './dto/bid.dto.js';
 import { RateRideDto } from './dto/rate-ride.dto.js';
 import { RatingsService } from './ratings.service.js';
 import { FaresService } from './fares.service.js';
@@ -81,6 +81,17 @@ export class RidesController {
   @Get(':id/bids')
   bids(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.rides.bidsFor(user.id, id);
+  }
+
+  // Passenger: still waiting - raise/lower the price, or flip auto-accept.
+  @Post(':id/offer')
+  @HttpCode(200)
+  updateOffer(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateOfferDto,
+  ) {
+    return this.rides.updateOffer(user.id, id, dto);
   }
 
   // Passenger: pick one of those offers. The ride is theirs from here.

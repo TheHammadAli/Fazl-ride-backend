@@ -320,6 +320,10 @@ model Ride {
   // side by side; see RIDE_PRICING_MODE).
   offeredFare Int?
   negotiable  Boolean @default(false)
+  // "Automatically accept the nearest driver for RsX": the first bid at or
+  // below offeredFare is chosen right away instead of waiting for the
+  // passenger to pick from the list.
+  autoAccept  Boolean @default(false)
 
   // Filled in when the ride completes (B4). For a negotiable ride this is set
   // as soon as the passenger chooses an offer, and completion leaves it as is

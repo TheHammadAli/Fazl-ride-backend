@@ -80,6 +80,7 @@ export function presentRide(
     // is chosen (set at that point, not only at completion).
     negotiable: ride.negotiable,
     offeredFare: ride.offeredFare,
+    autoAccept: ride.autoAccept,
     fare: ride.fare,
     myRating: extras.myRating ?? null,
     cancelledBy: ride.cancelledBy,

@@ -72,6 +72,7 @@ export class RidesService {
           estimatedFare: quote.fare,
           negotiable,
           offeredFare: negotiable ? (dto.offeredFare ?? quote.fare) : null,
+          autoAccept: negotiable ? (dto.autoAccept ?? false) : false,
           rates: quote.rates,
           searchRadiusMeters: negotiable
             ? this.settings.negotiableRadiusMeters
@@ -314,7 +315,7 @@ export class RidesService {
   async bid(driverId: string, rideId: string, amount: number) {
     await this.cancellations.assertNotBlocked(driverId, 'driver');
     const now = new Date();
-    const result = await this.prisma.rideOffer.updateMany({
+    const offer = await this.prisma.rideOffer.findFirst({
       where: {
         rideId,
         driverId,
@@ -322,15 +323,75 @@ export class RidesService {
         expiresAt: { gt: now },
         ride: { status: 'requested', negotiable: true },
       },
-      data: { status: 'bid', bidAmount: amount, respondedAt: now },
+      include: {
+        ride: {
+          select: {
+            passengerId: true,
+            offeredFare: true,
+            autoAccept: true,
+          },
+        },
+      },
     });
-    if (result.count === 0) {
+    if (!offer) {
       throw new ConflictException(
         'This offer has expired or was already answered',
       );
     }
+    await this.prisma.rideOffer.update({
+      where: { id: offer.id },
+      data: { status: 'bid', bidAmount: amount, respondedAt: now },
+    });
     this.events.emit('ride.bid.received', { rideId, driverId });
+
+    // "Automatically accept the nearest driver for RsX": the first bid at or
+    // below the asking price is chosen right away.
+    const withinBudget =
+      offer.ride.offeredFare != null && amount <= offer.ride.offeredFare;
+    if (offer.ride.autoAccept && withinBudget) {
+      try {
+        await this.choose(offer.ride.passengerId, rideId, offer.id);
+        return { message: 'Your offer was accepted automatically' };
+      } catch {
+        // Someone else was already chosen a moment earlier; the bid still
+        // stands and the passenger can pick it by hand instead.
+      }
+    }
     return { message: 'Your offer was sent to the passenger' };
+  }
+
+  // While still waiting: raise/lower the asking price, or flip auto-accept.
+  // Drivers who have not answered yet see the new price on their next look;
+  // ones already offered are pushed a fresh copy over the socket.
+  async updateOffer(
+    passengerId: string,
+    rideId: string,
+    changes: { amount?: number; autoAccept?: boolean },
+  ) {
+    const result = await this.prisma.ride.updateMany({
+      where: { id: rideId, passengerId, status: 'requested', negotiable: true },
+      data: {
+        ...(changes.amount != null && { offeredFare: changes.amount }),
+        ...(changes.autoAccept != null && { autoAccept: changes.autoAccept }),
+      },
+    });
+    if (result.count === 0) {
+      throw new ConflictException(
+        'This ride is not waiting for a price update',
+      );
+    }
+    this.events.emit('ride.offer.updated', { rideId });
+    return this.get(passengerId, rideId);
+  }
+
+  // Drivers whose offer is still open and unanswered, so they can be sent a
+  // refreshed copy of the ride when the passenger changes the price.
+  async pendingDriverIds(rideId: string) {
+    const offers = await this.prisma.rideOffer.findMany({
+      where: { rideId, status: 'pending', expiresAt: { gt: new Date() } },
+      select: { driverId: true },
+    });
+    return offers.map((o) => o.driverId);
   }
 
   // The open offers/bids a negotiable ride has collected so far, newest first.

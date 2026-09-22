@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsDefined,
   IsEnum,
   IsInt,
@@ -44,6 +45,12 @@ export class RequestRideDto {
   @Min(1)
   @Max(1_000_000)
   offeredFare?: number;
+
+  // A negotiable ride only: accept the first bid at or below offeredFare
+  // right away instead of waiting for the passenger to choose.
+  @IsOptional()
+  @IsBoolean()
+  autoAccept?: boolean;
 }
 
 export class CancelRideDto {

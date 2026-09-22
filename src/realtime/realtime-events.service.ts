@@ -48,6 +48,9 @@ export class RealtimeEventsService implements OnModuleInit, OnModuleDestroy {
       case 'ride.bid.received':
         return this.sendBidToPassenger(p.rideId, p.driverId);
 
+      case 'ride.offer.updated':
+        return this.refreshPendingOffers(p.rideId);
+
       case 'ride.accepted':
         await this.closeOffers(p.rideId, 'taken', p.driverId);
         return this.sendRideUpdate(p.rideId);
@@ -95,6 +98,13 @@ export class RealtimeEventsService implements OnModuleInit, OnModuleDestroy {
   private async sendOffer(driverId: string, rideId: string) {
     const offer = await this.rides.offerFor(driverId, rideId);
     if (offer) this.gateway.emitToUser(driverId, 'ride:offer', offer);
+  }
+
+  // The passenger changed the price (or auto-accept) while still waiting;
+  // drivers who have not answered yet get a fresh copy of the offer.
+  private async refreshPendingOffers(rideId: string) {
+    const driverIds = await this.rides.pendingDriverIds(rideId);
+    for (const driverId of driverIds) await this.sendOffer(driverId, rideId);
   }
 
   // A driver answered a negotiable ride; the passenger's offers list updates live.
