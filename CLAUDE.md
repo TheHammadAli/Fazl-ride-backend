@@ -156,6 +156,7 @@ All routes are under `/api/v1`, Swagger at `/docs`.
 - Gotcha: `@nestjs/passport` 12 with Nest 12 fails to resolve `AuthModuleOptions` in `JwtAuthGuard` unless `PassportModule.register(...)` is used (done in `AuthModule`, exported to feature modules).
 - Tests: `npm test` (phone normalizer), `npm run test:e2e` (validation + 401 guards, no DB needed). The full flow (OTP, apply, duplicate CNIC/plate, approve/reject, re-apply, refresh rotation and replay, admin routes) was verified by hand against the local DB on 2026-09-21; that script is not in the repo. Prisma 7 + pg adapter puts the violated constraint name in `error.meta.driverAdapterError.cause.constraint.index`.
 - Auth throttle: `otp/request` is limited to 5/min per IP, so scripted tests need pauses.
+- **`DEV_OTP_BYPASS=true`** (2026-09-22): any phone logs in with a fixed code (`DEV_OTP_CODE`, default `123456`), so someone testing the app (a client, another phone) can sign in without reading the server log. Off by default, every use logged as a warning, never set on a server real users reach.
 
 - **Accounts milestone (2026-09-21, all verified on real Supabase):**
   - Approval requires documents: default `cnic_front, cnic_back, license_front, selfie` + `vehicle_registration` per vehicle, overridable with `DRIVER_REQUIRED_DOCUMENTS`. `GET drivers/me` returns `missingDocuments`; admin approve of a driver or vehicle returns 400 with the missing list.
