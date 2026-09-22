@@ -1,0 +1,37 @@
+services:
+  - type: web
+    name: fazl-parking-backend
+    runtime: node
+    plan: free
+    buildCommand: npm ci && npm run build && npm run prisma:deploy
+    startCommand: npm run start:prod
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Everything below has no value here on purpose: fill each one in on
+      # Render's dashboard (Environment tab) after the first deploy is created.
+      # See .env.example for what each one means.
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: SHADOW_DATABASE_URL
+        sync: false
+      - key: DATABASE_SSL_CA
+        value: certs/supabase-ca-2021.crt
+      - key: JWT_ACCESS_SECRET
+        sync: false
+      - key: OTP_SECRET
+        sync: false
+      - key: SUPER_ADMIN_PHONES
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_BUCKET
+        sync: false
+      # Testing only - leave unset (or "false") on this real, reachable server.
+      - key: DEV_OTP_BYPASS
+        value: 'false'
