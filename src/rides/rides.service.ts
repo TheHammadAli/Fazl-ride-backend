@@ -19,6 +19,7 @@ import {
   rideInclude,
   RideWithRelations,
 } from './ride.presenter.js';
+import { ratingView } from './rating.js';
 import { RatingsService } from './ratings.service.js';
 import { RoutingProvider } from '../routing/routing.provider.js';
 import { RideSettings } from './rides.settings.js';
@@ -47,10 +48,12 @@ export class RidesService {
     private readonly earnings: EarningsService,
   ) {}
 
-  // Creates the request and immediately offers it to the nearest drivers.
+  // Creates the request and immediately offers it to the nearest drivers (or,
+  // in bidding mode, broadcasts it to everyone in range).
   async request(passengerId: string, dto: RequestRideDto) {
     await this.cancellations.assertNotBlocked(passengerId, 'passenger');
     const quote = await this.fares.quote(dto.pickup, dto.dropoff, dto.category);
+    const negotiable = this.settings.pricingMode === 'bidding';
     const now = new Date();
     let ride: RideWithRelations;
     try {
@@ -67,8 +70,12 @@ export class RidesService {
           estimatedDistanceMeters: quote.distanceMeters,
           estimatedDurationSeconds: quote.durationSeconds,
           estimatedFare: quote.fare,
+          negotiable,
+          offeredFare: negotiable ? (dto.offeredFare ?? quote.fare) : null,
           rates: quote.rates,
-          searchRadiusMeters: this.settings.radiiMeters[0],
+          searchRadiusMeters: negotiable
+            ? this.settings.negotiableRadiusMeters
+            : this.settings.radiiMeters[0],
           nextExpandAt: new Date(
             now.getTime() + this.settings.offerTtlSeconds * 1000,
           ),
@@ -230,6 +237,11 @@ export class RidesService {
             'This ride was taken by another driver or cancelled',
           );
         }
+        if (ride.negotiable) {
+          throw new ConflictException(
+            'This ride is negotiable; send a bid instead of accepting directly',
+          );
+        }
         if (ride.category !== presence.category) {
           throw new ConflictException(
             "Your current vehicle does not match this ride's category",
@@ -287,13 +299,225 @@ export class RidesService {
 
   async decline(driverId: string, rideId: string) {
     const result = await this.prisma.rideOffer.updateMany({
-      where: { rideId, driverId, status: 'pending' },
+      where: { rideId, driverId, status: { in: ['pending', 'bid'] } },
       data: { status: 'declined', respondedAt: new Date() },
     });
     if (result.count === 0)
       throw new NotFoundException('No pending offer for this ride');
     this.events.emit('ride.offer.declined', { rideId, driverId });
     return { message: 'Offer declined' };
+  }
+
+  // Driver: answers a negotiable ride with a price (their own, or the ride's
+  // offeredFare again to take it as it stood). The passenger chooses among
+  // these; nothing is decided yet.
+  async bid(driverId: string, rideId: string, amount: number) {
+    await this.cancellations.assertNotBlocked(driverId, 'driver');
+    const now = new Date();
+    const result = await this.prisma.rideOffer.updateMany({
+      where: {
+        rideId,
+        driverId,
+        status: 'pending',
+        expiresAt: { gt: now },
+        ride: { status: 'requested', negotiable: true },
+      },
+      data: { status: 'bid', bidAmount: amount, respondedAt: now },
+    });
+    if (result.count === 0) {
+      throw new ConflictException(
+        'This offer has expired or was already answered',
+      );
+    }
+    this.events.emit('ride.bid.received', { rideId, driverId });
+    return { message: 'Your offer was sent to the passenger' };
+  }
+
+  // The open offers/bids a negotiable ride has collected so far, newest first.
+  async bidsFor(passengerId: string, rideId: string) {
+    const ride = await this.prisma.ride.findFirst({
+      where: { id: rideId, passengerId },
+      select: { status: true, offeredFare: true, negotiable: true },
+    });
+    if (!ride) throw new NotFoundException('Ride not found');
+    if (!ride.negotiable) return { offers: [] };
+
+    const offers = await this.prisma.rideOffer.findMany({
+      where: {
+        rideId,
+        status: { in: ['pending', 'bid'] },
+        expiresAt: { gt: new Date() },
+      },
+      orderBy: { offeredAt: 'desc' },
+    });
+    return { offers: await this.presentOffers(offers, ride.offeredFare) };
+  }
+
+  // One driver's current offer on a negotiable ride, for the socket push the
+  // moment they answer. `null` if it is gone (declined, expired) by the time we look.
+  async bidFor(rideId: string, driverId: string) {
+    const ride = await this.prisma.ride.findUnique({
+      where: { id: rideId },
+      select: { offeredFare: true },
+    });
+    if (!ride) return null;
+    const offer = await this.prisma.rideOffer.findFirst({
+      where: {
+        rideId,
+        driverId,
+        status: { in: ['pending', 'bid'] },
+        expiresAt: { gt: new Date() },
+      },
+    });
+    if (!offer) return null;
+    const [presented] = await this.presentOffers([offer], ride.offeredFare);
+    return presented;
+  }
+
+  private async presentOffers(
+    offers: {
+      id: string;
+      driverId: string;
+      status: string;
+      bidAmount: number | null;
+      etaSeconds: number;
+      distanceToPickupMeters: number;
+    }[],
+    offeredFare: number | null,
+  ) {
+    if (!offers.length) return [];
+    const driverIds = offers.map((o) => o.driverId);
+    const [drivers, presences] = await Promise.all([
+      this.prisma.user.findMany({
+        where: { id: { in: driverIds } },
+        select: { id: true, name: true, ratingSum: true, ratingCount: true },
+      }),
+      this.prisma.driverPresence.findMany({
+        where: { userId: { in: driverIds } },
+        select: { userId: true, vehicleId: true },
+      }),
+    ]);
+    const vehicleIds = presences.map((p) => p.vehicleId).filter((v) => v);
+    const vehicles = vehicleIds.length
+      ? await this.prisma.vehicle.findMany({
+          where: { id: { in: vehicleIds } },
+          select: {
+            id: true,
+            make: true,
+            model: true,
+            color: true,
+            plateNumber: true,
+            category: true,
+          },
+        })
+      : [];
+    const driverById = new Map(drivers.map((d) => [d.id, d]));
+    const vehicleIdByDriver = new Map(
+      presences.map((p) => [p.userId, p.vehicleId]),
+    );
+    const vehicleById = new Map(vehicles.map((v) => [v.id, v]));
+
+    return offers.map((offer) => {
+      const driver = driverById.get(offer.driverId);
+      const vehicleId = vehicleIdByDriver.get(offer.driverId);
+      const vehicle = vehicleId ? vehicleById.get(vehicleId) : undefined;
+      return {
+        offerId: offer.id,
+        amount: offer.bidAmount ?? offeredFare,
+        // The driver has not answered yet; this is only the suggested price.
+        isPending: offer.status === 'pending',
+        etaSeconds: offer.etaSeconds,
+        distanceToPickupMeters: offer.distanceToPickupMeters,
+        driver: driver
+          ? {
+              id: driver.id,
+              name: driver.name,
+              rating: ratingView(driver.ratingSum, driver.ratingCount),
+              vehicle: vehicle ?? null,
+            }
+          : null,
+      };
+    });
+  }
+
+  // Passenger: picks one of the offers/bids. Everyone else's is closed.
+  async choose(passengerId: string, rideId: string, offerId: string) {
+    const now = new Date();
+    let driverId = '';
+    await this.prisma.$transaction(async (tx) => {
+      const ride = await this.lockRide(tx, rideId);
+      if (ride.passengerId !== passengerId) {
+        throw new NotFoundException('Ride not found');
+      }
+      if (!ride.negotiable) {
+        throw new ConflictException('This ride is not negotiable');
+      }
+      if (ride.status !== 'requested') {
+        throw new ConflictException(
+          'This ride is no longer waiting for a driver',
+        );
+      }
+
+      const offer = await tx.rideOffer.findFirst({
+        where: {
+          id: offerId,
+          rideId,
+          status: { in: ['pending', 'bid'] },
+          expiresAt: { gt: now },
+        },
+      });
+      if (!offer) {
+        throw new ConflictException('This offer is no longer available');
+      }
+      driverId = offer.driverId;
+      const amount = offer.bidAmount ?? ride.offeredFare;
+      if (amount == null) {
+        // Should not happen: a negotiable ride always has an offeredFare.
+        throw new ConflictException('This offer has no price');
+      }
+
+      const presence = await tx.driverPresence.findUnique({
+        where: { userId: driverId },
+      });
+      if (!presence?.isOnline) {
+        throw new ConflictException('This driver is no longer online');
+      }
+
+      await tx.rideOffer.update({
+        where: { id: offerId },
+        data: { status: 'accepted', respondedAt: now },
+      });
+      await tx.rideOffer.updateMany({
+        where: {
+          rideId,
+          id: { not: offerId },
+          status: { in: ['pending', 'bid'] },
+        },
+        data: { status: 'closed', respondedAt: now },
+      });
+      await tx.ride.update({
+        where: { id: rideId },
+        data: {
+          status: 'accepted',
+          driverId,
+          vehicleId: presence.vehicleId,
+          acceptedAt: now,
+          fare: amount,
+        },
+      });
+
+      const busy = await tx.$executeRaw`
+        UPDATE driver_presence SET "busy" = true, "updatedAt" = now()
+        WHERE "userId" = ${driverId}::uuid AND "isOnline" AND NOT "busy"`;
+      if (busy === 0) {
+        throw new ConflictException(
+          'That driver just became unavailable; pick another offer',
+        );
+      }
+    });
+
+    this.events.emit('ride.accepted', { rideId, driverId });
+    return this.get(passengerId, rideId);
   }
 
   // Driver: "I am at the pickup". Must really be there (last known position).
@@ -363,13 +587,21 @@ export class RidesService {
       1,
       Math.round((now.getTime() - (ride.startedAt ?? now).getTime()) / 1000),
     );
-    const rates =
-      (ride.rates as FareRatesSnapshot | null) ??
-      (await this.currentRates(ride.category));
-    const fare = Math.min(
-      calculateFare(rates, distanceMeters, durationSeconds),
-      Math.round(ride.estimatedFare * this.settings.maxFareFactor),
-    );
+    // A negotiable ride's price was agreed when the passenger chose the offer
+    // (ride.fare is already set); the metered calculation below is only for
+    // the original fixed-price mode.
+    let fare: number;
+    if (ride.negotiable && ride.fare != null) {
+      fare = ride.fare;
+    } else {
+      const rates =
+        (ride.rates as FareRatesSnapshot | null) ??
+        (await this.currentRates(ride.category));
+      fare = Math.min(
+        calculateFare(rates, distanceMeters, durationSeconds),
+        Math.round(ride.estimatedFare * this.settings.maxFareFactor),
+      );
+    }
 
     await this.prisma.$transaction(async (tx) => {
       const done = await tx.ride.updateMany({
@@ -586,15 +818,22 @@ export class RidesService {
     category: VehicleCategory;
     status: RideStatus;
     driverId: string | null;
+    passengerId: string;
+    negotiable: boolean;
+    offeredFare: number | null;
   }> {
     const rows = await tx.$queryRaw<
       {
         category: VehicleCategory;
         status: RideStatus;
         driverId: string | null;
+        passengerId: string;
+        negotiable: boolean;
+        offeredFare: number | null;
       }[]
-    >`SELECT "category", "status"::text AS "status", "driverId" FROM rides
-      WHERE "id" = ${rideId}::uuid FOR UPDATE`;
+    >`SELECT "category", "status"::text AS "status", "driverId", "passengerId",
+             "negotiable", "offeredFare"
+      FROM rides WHERE "id" = ${rideId}::uuid FOR UPDATE`;
     if (!rows[0]) throw new NotFoundException('Ride not found');
     return rows[0];
   }

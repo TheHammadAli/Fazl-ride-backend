@@ -22,6 +22,9 @@ export interface OfferableRide {
   pickupLng: number;
   category: VehicleCategory;
   searchRadiusMeters: number;
+  // Bidding rides broadcast to everyone in range instead of a handful of the
+  // nearest drivers; see RideSettings.negotiableOffersLimit.
+  negotiable?: boolean;
 }
 
 @Injectable()
@@ -58,16 +61,21 @@ export class MatchingService
       select: { driverId: true },
     });
     const skip = new Set([...asked.map((a) => a.driverId), ride.passengerId]);
+    // Fixed-price rides go to a handful of the nearest drivers; a negotiable
+    // ride is broadcast to everyone in range, so it can collect several bids.
+    const perRound = ride.negotiable
+      ? this.settings.negotiableOffersLimit
+      : this.settings.offersPerRound;
     const nearby = await this.locations.findNearby({
       lat: ride.pickupLat,
       lng: ride.pickupLng,
       radiusMeters: ride.searchRadiusMeters,
       category: ride.category,
-      limit: this.settings.offersPerRound + skip.size,
+      limit: perRound + skip.size,
     });
     const chosen = nearby
       .filter((d) => !skip.has(d.userId))
-      .slice(0, this.settings.offersPerRound);
+      .slice(0, perRound);
     if (!chosen.length) return 0;
 
     const expiresAt = new Date(
@@ -141,8 +149,16 @@ export class MatchingService
         });
         const last = this.settings.radiiMeters.length - 1;
         for (const ride of due) {
-          const step = Math.min(ride.searchStep + 1, last);
-          const radius = this.settings.radiiMeters[step];
+          // A negotiable ride already went out to everyone in range; re-run
+          // the same broadcast (at the same radius) so a driver who just came
+          // online still gets a chance, rather than shrinking back down to
+          // the fixed-price widening steps.
+          const radius = ride.negotiable
+            ? this.settings.negotiableRadiusMeters
+            : this.settings.radiiMeters[Math.min(ride.searchStep + 1, last)];
+          const step = ride.negotiable
+            ? ride.searchStep
+            : Math.min(ride.searchStep + 1, last);
           await this.offerRide({ ...ride, searchRadiusMeters: radius });
           await tx.ride.update({
             where: { id: ride.id },

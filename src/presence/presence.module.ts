@@ -3,13 +3,14 @@ import { CancellationsModule } from '../cancellations/cancellations.module.js';
 import { AuthModule } from '../auth/auth.module.js';
 import { DriverLocationStore } from './driver-location.store.js';
 import { PostgisDriverLocationStore } from './postgis-driver-location.store.js';
+import { NearbyDriversController } from './nearby-drivers.controller.js';
 import { PresenceController } from './presence.controller.js';
 import { PresenceSweeperService } from './presence-sweeper.service.js';
 import { PresenceService } from './presence.service.js';
 
 @Module({
   imports: [AuthModule, CancellationsModule],
-  controllers: [PresenceController],
+  controllers: [PresenceController, NearbyDriversController],
   providers: [
     PresenceService,
     PresenceSweeperService,

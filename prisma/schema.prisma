@@ -271,9 +271,14 @@ enum RideStatus {
 
 enum OfferStatus {
   pending
+  // The driver answered with a price (their own, or the suggested one as-is);
+  // the passenger has not chosen yet.
+  bid
   accepted
   declined
   expired
+  // Another driver's offer was chosen for this ride.
+  closed
 }
 
 enum PaymentMethod {
@@ -305,9 +310,20 @@ model Ride {
 
   estimatedDistanceMeters  Int
   estimatedDurationSeconds Int
+  // The suggested price (from the fare table), shown to the passenger before
+  // they request. For a negotiable ride this is only a starting point.
   estimatedFare            Int
 
-  // Filled in when the ride completes (B4).
+  // Bidding (InDrive-style): what the passenger put forward when requesting
+  // (defaults to estimatedFare if they did not change it), and whether this
+  // ride is being matched by bidding at all (the business can run both modes
+  // side by side; see RIDE_PRICING_MODE).
+  offeredFare Int?
+  negotiable  Boolean @default(false)
+
+  // Filled in when the ride completes (B4). For a negotiable ride this is set
+  // as soon as the passenger chooses an offer, and completion leaves it as is
+  // (the agreed price does not get recalculated from the distance driven).
   distanceMeters  Int?
   durationSeconds Int?
   fare            Int?
@@ -363,6 +379,9 @@ model RideOffer {
   status                 OfferStatus @default(pending)
   distanceToPickupMeters Int
   etaSeconds             Int
+  // Set once the driver answers a negotiable ride: their own price, or the
+  // ride's offeredFare again if they chose to accept it as it stood.
+  bidAmount              Int?
   offeredAt              DateTime    @default(now())
   expiresAt              DateTime
   respondedAt            DateTime?

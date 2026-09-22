@@ -39,6 +39,7 @@ Events sent while the app was offline are **not replayed**. On every `connected`
 |---|---|---|---|
 | `ride:offer` | driver | offer object (same as items of `GET /drivers/me/offers`) | a ride is offered to this driver |
 | `ride:offer_closed` | driver | `{ rideId, reason }` reason = `taken` \| `cancelled` \| `expired` | an offer disappeared; remove it from the list |
+| `ride:bid` | passenger | `{ rideId, offerId, amount, isPending, etaSeconds, distanceToPickupMeters, driver }` (same shape as one item of `GET /rides/:id/bids`) | a driver answered a **negotiable** ride (their own price, or accepted the suggested one) |
 | `ride:update` | passenger and driver of the ride | ride object (same as `GET /rides/:id`) | any status change: accepted, arrived, started, completed, cancelled, expired, or back to `requested` after the driver backed out |
 | `driver:offline` | driver | `{ reason: "inactive", lastSeenAt }` | the server put this driver offline because no position arrived for 5 minutes; show it and offer "Go Online" |
 | `driver:location` | passenger | `{ rideId, status, lat, lng, etaSeconds, distanceToPickupMeters }` | while a driver is on the way (`accepted`, ETA and distance filled) and during the trip (`started`, both `null`); at most every 1.5 s |

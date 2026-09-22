@@ -45,6 +45,9 @@ export class RealtimeEventsService implements OnModuleInit, OnModuleDestroy {
       case 'ride.offer.created':
         return this.sendOffer(p.driverId, p.rideId);
 
+      case 'ride.bid.received':
+        return this.sendBidToPassenger(p.rideId, p.driverId);
+
       case 'ride.accepted':
         await this.closeOffers(p.rideId, 'taken', p.driverId);
         return this.sendRideUpdate(p.rideId);
@@ -92,6 +95,15 @@ export class RealtimeEventsService implements OnModuleInit, OnModuleDestroy {
   private async sendOffer(driverId: string, rideId: string) {
     const offer = await this.rides.offerFor(driverId, rideId);
     if (offer) this.gateway.emitToUser(driverId, 'ride:offer', offer);
+  }
+
+  // A driver answered a negotiable ride; the passenger's offers list updates live.
+  private async sendBidToPassenger(rideId: string, driverId: string) {
+    const parties = await this.rides.partiesOf(rideId);
+    const passengerId = parties?.[0];
+    if (!passengerId) return;
+    const bid = await this.rides.bidFor(rideId, driverId);
+    if (bid) this.gateway.emitToUser(passengerId, 'ride:bid', { rideId, ...bid });
   }
 
   // Tells the drivers who were asked but did not get the ride that the offer is gone.

@@ -17,6 +17,7 @@ import { RolesGuard } from '../common/guards/roles.guard.js';
 import { Role } from '../generated/prisma/enums.js';
 import { EstimateRideDto } from './dto/ride.dto.js';
 import { CancelRideDto, RequestRideDto } from './dto/request-ride.dto.js';
+import { BidDto, ChooseOfferDto } from './dto/bid.dto.js';
 import { RateRideDto } from './dto/rate-ride.dto.js';
 import { RatingsService } from './ratings.service.js';
 import { FaresService } from './fares.service.js';
@@ -76,6 +77,23 @@ export class RidesController {
     return this.ratings.rate(user.id, id, dto);
   }
 
+  // Passenger: the offers/bids a negotiable ride has collected so far.
+  @Get(':id/bids')
+  bids(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.rides.bidsFor(user.id, id);
+  }
+
+  // Passenger: pick one of those offers. The ride is theirs from here.
+  @Post(':id/choose')
+  @HttpCode(200)
+  choose(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ChooseOfferDto,
+  ) {
+    return this.rides.choose(user.id, id, dto.offerId);
+  }
+
   @Post(':id/accept')
   @HttpCode(200)
   @UseGuards(RolesGuard)
@@ -85,6 +103,19 @@ export class RidesController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.rides.accept(user.id, id);
+  }
+
+  // Driver: answer a negotiable ride with a price instead of accepting outright.
+  @Post(':id/bid')
+  @HttpCode(200)
+  @UseGuards(RolesGuard)
+  @Roles(Role.driver)
+  bid(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: BidDto,
+  ) {
+    return this.rides.bid(user.id, id, dto.amount);
   }
 
   @Post(':id/arrived')

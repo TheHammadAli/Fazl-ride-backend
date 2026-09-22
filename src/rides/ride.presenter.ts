@@ -74,6 +74,12 @@ export function presentRide(
       distanceMeters: ride.estimatedDistanceMeters,
       durationSeconds: ride.estimatedDurationSeconds,
     },
+    // Bidding (InDrive-style): true while this ride is being matched by offers
+    // and a chosen price rather than the fixed quote above. offeredFare is
+    // what the passenger put forward; fare is the agreed price once someone
+    // is chosen (set at that point, not only at completion).
+    negotiable: ride.negotiable,
+    offeredFare: ride.offeredFare,
     fare: ride.fare,
     myRating: extras.myRating ?? null,
     cancelledBy: ride.cancelledBy,

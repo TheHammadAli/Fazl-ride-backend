@@ -23,6 +23,16 @@ export class RideSettings {
   readonly tickMs: number;
   readonly sweeperEnabled: boolean;
 
+  // "bidding" (InDrive-style: broadcast to everyone, drivers propose a price,
+  // the passenger chooses) or "fixed" (the original Uber/Careem style: nearest
+  // few drivers, first to accept at the quoted price wins). Config, not code,
+  // so the business can switch back without a release.
+  readonly pricingMode: 'bidding' | 'fixed';
+  // How far a negotiable request is broadcast, and to how many drivers at
+  // once - effectively "everyone in the city" rather than "the nearest few".
+  readonly negotiableRadiusMeters: number;
+  readonly negotiableOffersLimit: number;
+
   constructor(config: ConfigService) {
     this.requestTtlSeconds = Number(
       config.get('RIDE_REQUEST_TTL_SECONDS') ?? 120,
@@ -43,5 +53,15 @@ export class RideSettings {
     this.tickMs = Number(config.get('MATCHING_TICK_MS') ?? 5000);
     this.sweeperEnabled =
       String(config.get('MATCHING_SWEEPER') ?? 'on') !== 'off';
+    this.pricingMode =
+      String(config.get('RIDE_PRICING_MODE') ?? 'bidding') === 'fixed'
+        ? 'fixed'
+        : 'bidding';
+    this.negotiableRadiusMeters = Number(
+      config.get('NEGOTIABLE_RADIUS_METERS') ?? 50_000,
+    );
+    this.negotiableOffersLimit = Number(
+      config.get('NEGOTIABLE_OFFERS_LIMIT') ?? 300,
+    );
   }
 }
