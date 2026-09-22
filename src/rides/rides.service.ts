@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -48,12 +49,33 @@ export class RidesService {
     private readonly earnings: EarningsService,
   ) {}
 
+  // The lowest a negotiable price may go for a ride whose fixed/estimated
+  // fare is `estimatedFare` - it can be talked down, but not given away.
+  private minNegotiableFare(estimatedFare: number): number {
+    return Math.max(
+      1,
+      Math.round(estimatedFare * this.settings.negotiationMinFareFraction),
+    );
+  }
+
+  private assertAboveMinimumFare(amount: number, estimatedFare: number) {
+    const min = this.minNegotiableFare(estimatedFare);
+    if (amount < min) {
+      throw new BadRequestException(
+        `The price can not be lower than Rs ${min} (the fixed rate is Rs ${estimatedFare})`,
+      );
+    }
+  }
+
   // Creates the request and immediately offers it to the nearest drivers (or,
   // in bidding mode, broadcasts it to everyone in range).
   async request(passengerId: string, dto: RequestRideDto) {
     await this.cancellations.assertNotBlocked(passengerId, 'passenger');
     const quote = await this.fares.quote(dto.pickup, dto.dropoff, dto.category);
     const negotiable = this.settings.pricingMode === 'bidding';
+    if (negotiable && dto.offeredFare != null) {
+      this.assertAboveMinimumFare(dto.offeredFare, quote.fare);
+    }
     const now = new Date();
     let ride: RideWithRelations;
     try {
@@ -329,6 +351,7 @@ export class RidesService {
             passengerId: true,
             offeredFare: true,
             autoAccept: true,
+            estimatedFare: true,
           },
         },
       },
@@ -338,6 +361,7 @@ export class RidesService {
         'This offer has expired or was already answered',
       );
     }
+    this.assertAboveMinimumFare(amount, offer.ride.estimatedFare);
     await this.prisma.rideOffer.update({
       where: { id: offer.id },
       data: { status: 'bid', bidAmount: amount, respondedAt: now },
@@ -368,6 +392,23 @@ export class RidesService {
     rideId: string,
     changes: { amount?: number; autoAccept?: boolean },
   ) {
+    if (changes.amount != null) {
+      const ride = await this.prisma.ride.findFirst({
+        where: {
+          id: rideId,
+          passengerId,
+          status: 'requested',
+          negotiable: true,
+        },
+        select: { estimatedFare: true },
+      });
+      if (!ride) {
+        throw new ConflictException(
+          'This ride is not waiting for a price update',
+        );
+      }
+      this.assertAboveMinimumFare(changes.amount, ride.estimatedFare);
+    }
     const result = await this.prisma.ride.updateMany({
       where: { id: rideId, passengerId, status: 'requested', negotiable: true },
       data: {

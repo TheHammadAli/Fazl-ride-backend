@@ -32,6 +32,10 @@ export class RideSettings {
   // once - effectively "everyone in the city" rather than "the nearest few".
   readonly negotiableRadiusMeters: number;
   readonly negotiableOffersLimit: number;
+  // A negotiable price can be lowered, but not below this fraction of the
+  // ride's fixed/estimated fare (raising it has no limit beyond the DTO's
+  // plain Max(1_000_000)). 0.5 matches the app's own price-stepper floor.
+  readonly negotiationMinFareFraction: number;
 
   constructor(config: ConfigService) {
     this.requestTtlSeconds = Number(
@@ -62,6 +66,9 @@ export class RideSettings {
     );
     this.negotiableOffersLimit = Number(
       config.get('NEGOTIABLE_OFFERS_LIMIT') ?? 300,
+    );
+    this.negotiationMinFareFraction = Number(
+      config.get('NEGOTIABLE_MIN_FARE_FRACTION') ?? 0.5,
     );
   }
 }
