@@ -9,6 +9,7 @@ import { Role } from '../generated/prisma/enums.js';
 import type { AuthUser } from '../common/decorators/current-user.decorator.js';
 import { DomainEvents } from '../events/domain-events.service.js';
 import { AuditService } from '../audit/audit.service.js';
+import { DriverApprovalService } from '../drivers/driver-approval.service.js';
 import { DriverDocumentsService } from '../drivers/driver-documents.service.js';
 import { DriverRequirementsService } from '../drivers/driver-requirements.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -26,6 +27,7 @@ export class AdminService {
     private readonly prisma: PrismaService,
     private readonly documents: DriverDocumentsService,
     private readonly requirements: DriverRequirementsService,
+    private readonly driverApproval: DriverApprovalService,
     private readonly audit: AuditService,
     private readonly events: DomainEvents,
   ) {}
@@ -87,46 +89,11 @@ export class AdminService {
   }
 
   // Approving a driver also approves the vehicles they applied with and
-  // grants the `driver` role, which unlocks Driver mode in the app.
+  // grants the `driver` role, which unlocks Driver mode in the app. The
+  // actual work is shared with the DEV_AUTO_APPROVE_DRIVERS dev flow - see
+  // DriverApprovalService.
   async approveDriver(id: string, adminId: string) {
-    const profile = await this.findDriver(id);
-    if (profile.status === 'approved') {
-      throw new ConflictException('Driver is already approved');
-    }
-    const pendingVehicles = profile.vehicles.filter(
-      (v) => v.status === 'pending',
-    );
-    const missing = this.requirements.missing(
-      pendingVehicles,
-      profile.documents,
-    );
-    if (missing.length) {
-      throw new BadRequestException({
-        message: 'Required documents are missing',
-        missing,
-      });
-    }
-    await this.prisma.$transaction([
-      this.prisma.driverProfile.update({
-        where: { id },
-        data: {
-          status: 'approved',
-          rejectionReason: null,
-          reviewedById: adminId,
-          reviewedAt: new Date(),
-        },
-      }),
-      this.prisma.vehicle.updateMany({
-        where: { driverProfileId: id, status: 'pending' },
-        data: { status: 'approved' },
-      }),
-      this.prisma.userRole.upsert({
-        where: { userId_role: { userId: profile.userId, role: Role.driver } },
-        update: {},
-        create: { userId: profile.userId, role: Role.driver },
-      }),
-    ]);
-    await this.audit.log(adminId, 'driver.approve', 'driver_profile', id);
+    await this.driverApproval.approve(id, adminId, 'driver.approve');
     return this.findDriver(id);
   }
 

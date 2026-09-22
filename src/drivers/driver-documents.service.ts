@@ -9,6 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { detectFileType } from '../common/file-type.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { StorageService } from '../storage/storage.service.js';
+import { DriverApprovalService } from './driver-approval.service.js';
 import { UploadDocumentDto } from './dto/document.dto.js';
 
 export const MAX_DOCUMENT_BYTES = 5 * 1024 * 1024;
@@ -31,6 +32,7 @@ export class DriverDocumentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
+    private readonly approval: DriverApprovalService,
   ) {}
 
   // Uploading the same type (and vehicle) again replaces the previous file.
@@ -108,6 +110,9 @@ export class DriverDocumentsService {
       throw error;
     }
     await this.removeQuietly(replaced.map((d) => d.storageKey));
+    // Opportunistic: while DEV_AUTO_APPROVE_DRIVERS=true, this may have just
+    // satisfied the last missing requirement.
+    await this.approval.maybeAutoApprove(profile.id);
     return this.withUrl(created);
   }
 
