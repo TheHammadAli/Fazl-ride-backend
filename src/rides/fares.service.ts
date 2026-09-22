@@ -12,6 +12,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { UpdateFareConfigDto } from './dto/fare-config.dto.js';
 import { calculateFare } from './fare.calculator.js';
 import { RoutingProvider } from '../routing/routing.provider.js';
+import { RideSettings } from './rides.settings.js';
 
 const MIN_TRIP_METERS = 50;
 const MAX_TRIP_METERS = 200_000;
@@ -25,6 +26,7 @@ export class FaresService {
     private readonly routing: RoutingProvider,
     private readonly locations: DriverLocationStore,
     private readonly audit: AuditService,
+    private readonly settings: RideSettings,
   ) {}
 
   listConfigs() {
@@ -126,6 +128,9 @@ export class FaresService {
       distanceMeters: route.distanceMeters,
       durationSeconds: route.durationSeconds,
       currency: 'PKR',
+      // Lets the app decide, before requesting, whether to show an editable
+      // "your price" (bidding) or just a Book button (fixed) - RIDE_PRICING_MODE.
+      negotiable: this.settings.pricingMode === 'bidding',
       estimates,
     };
   }
