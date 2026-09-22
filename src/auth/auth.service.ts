@@ -3,6 +3,7 @@ import {
   HttpException,
   HttpStatus,
   Injectable,
+  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -23,6 +24,8 @@ const OTP_MAX_ATTEMPTS = 5;
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
@@ -59,6 +62,17 @@ export class AuthService {
   }
 
   async verifyOtp(phone: string, code: string) {
+    // Testing only: any phone logs in with one fixed code, no SMS needed.
+    // Never true in production - see DEV_OTP_BYPASS in .env.example.
+    if (this.devBypassCode() === code) {
+      this.logger.warn(`DEV_OTP_BYPASS used to log in ${phone}`);
+      const bypassUser = await this.findOrCreateUser(phone);
+      if (bypassUser.status === 'blocked') {
+        throw new ForbiddenException('Account is blocked');
+      }
+      return this.issueTokens(bypassUser.id);
+    }
+
     const otp = await this.prisma.otpCode.findFirst({
       where: { phone, consumedAt: null, expiresAt: { gt: new Date() } },
       orderBy: { createdAt: 'desc' },
@@ -169,6 +183,14 @@ export class AuthService {
     });
     const accessToken = await this.jwt.signAsync({ sub: userId });
     return { accessToken, refreshToken };
+  }
+
+  // Returns the fixed code that logs anyone in while DEV_OTP_BYPASS=true, or
+  // null when the bypass is off (its default) - so `null === code` never matches.
+  private devBypassCode(): string | null {
+    const enabled =
+      String(this.config.get('DEV_OTP_BYPASS') ?? '').toLowerCase() === 'true';
+    return enabled ? (this.config.get<string>('DEV_OTP_CODE') ?? '123456') : null;
   }
 
   private hashOtp(phone: string, code: string) {
