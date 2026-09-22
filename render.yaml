@@ -3,7 +3,9 @@ services:
     name: fazl-parking-backend
     runtime: node
     plan: free
-    buildCommand: npm ci && npm run build && npm run prisma:deploy
+    # --include=dev: NODE_ENV=production below would otherwise make npm skip
+    # devDependencies, and the build needs @nestjs/cli, typescript, etc. for it.
+    buildCommand: npm ci --include=dev && npm run build && npm run prisma:deploy
     startCommand: npm run start:prod
     healthCheckPath: /api/v1/health
     envVars:
