@@ -5,7 +5,6 @@ import {
 } from '@nestjs/common';
 import { haversineMeters } from '../common/geo.js';
 import type { LatLng } from '../common/geo.js';
-import { VehicleCategory } from '../generated/prisma/enums.js';
 import { AuditService } from '../audit/audit.service.js';
 import { DriverLocationStore } from '../presence/driver-location.store.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -29,12 +28,22 @@ export class FaresService {
     private readonly settings: RideSettings,
   ) {}
 
+  // Admin's own list (GET admin/fares) - every category, active or not, so a
+  // deactivated one can still be found and re-enabled.
   listConfigs() {
     return this.prisma.fareConfig.findMany({ orderBy: { baseFare: 'asc' } });
   }
 
+  // Only categories a passenger can actually book right now.
+  private listActiveConfigs() {
+    return this.prisma.fareConfig.findMany({
+      where: { categoryRef: { active: true } },
+      orderBy: { baseFare: 'asc' },
+    });
+  }
+
   async updateConfig(
-    category: VehicleCategory,
+    category: string,
     dto: UpdateFareConfigDto,
     actorId: string,
   ) {
@@ -68,13 +77,18 @@ export class FaresService {
   }
 
   // Price and route for one category, used when a ride is actually requested.
-  async quote(pickup: LatLng, dropoff: LatLng, category: VehicleCategory) {
+  async quote(pickup: LatLng, dropoff: LatLng, category: string) {
     this.assertReasonableTrip(pickup, dropoff);
     const [route, config] = await Promise.all([
       this.routing.route(pickup, dropoff),
-      this.prisma.fareConfig.findUnique({ where: { category } }),
+      this.prisma.fareConfig.findUnique({
+        where: { category },
+        include: { categoryRef: true },
+      }),
     ]);
-    if (!config) throw new NotFoundException('Fare config not found');
+    if (!config || !config.categoryRef.active) {
+      throw new NotFoundException('Fare config not found');
+    }
     return {
       distanceMeters: route.distanceMeters,
       durationSeconds: route.durationSeconds,
@@ -94,7 +108,7 @@ export class FaresService {
     this.assertReasonableTrip(pickup, dropoff);
     const [route, configs, nearby] = await Promise.all([
       this.routing.route(pickup, dropoff),
-      this.listConfigs(),
+      this.listActiveConfigs(),
       this.locations.findNearby({
         ...pickup,
         radiusMeters: NEARBY_RADIUS_METERS,

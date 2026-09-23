@@ -1,15 +1,23 @@
-import { IsDateString, IsEnum, IsOptional, IsUUID } from 'class-validator';
+import {
+  IsDateString,
+  IsEnum,
+  IsOptional,
+  IsString,
+  IsUUID,
+} from 'class-validator';
 import { PaginationDto } from '../../common/dto/pagination.dto.js';
-import { RideStatus, VehicleCategory } from '../../generated/prisma/enums.js';
+import { RideStatus } from '../../generated/prisma/enums.js';
 
 export class ListRidesDto extends PaginationDto {
   @IsOptional()
   @IsEnum(RideStatus)
   status?: RideStatus;
 
+  // Not a fixed enum any more (see admin/vehicle-categories); an unknown
+  // value here just matches no rides instead of being rejected.
   @IsOptional()
-  @IsEnum(VehicleCategory)
-  category?: VehicleCategory;
+  @IsString()
+  category?: string;
 
   @IsOptional()
   @IsUUID()

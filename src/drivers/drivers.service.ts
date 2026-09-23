@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { VehicleCategoriesService } from '../vehicle-categories/vehicle-categories.service.js';
 import { DriverDocumentsService } from './driver-documents.service.js';
 import { DriverRequirementsService } from './driver-requirements.js';
 import { ApplyDriverDto, VehicleDto } from './dto/driver.dto.js';
@@ -15,11 +16,13 @@ export class DriversService {
     private readonly prisma: PrismaService,
     private readonly documents: DriverDocumentsService,
     private readonly requirements: DriverRequirementsService,
+    private readonly vehicleCategories: VehicleCategoriesService,
   ) {}
 
   // "Become a Driver": creates a pending profile plus the first vehicle.
   // A rejected applicant may apply again; anyone else already has a profile.
   async apply(userId: string, dto: ApplyDriverDto) {
+    await this.vehicleCategories.assertActive(dto.vehicle.category);
     const existing = await this.prisma.driverProfile.findUnique({
       where: { userId },
     });
@@ -87,6 +90,7 @@ export class DriversService {
   }
 
   async addVehicle(userId: string, dto: VehicleDto) {
+    await this.vehicleCategories.assertActive(dto.category);
     const profile = await this.prisma.driverProfile.findUnique({
       where: { userId },
     });

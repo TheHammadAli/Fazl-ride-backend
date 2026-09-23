@@ -2,8 +2,8 @@ import { Type } from 'class-transformer';
 import {
   IsBoolean,
   IsDefined,
-  IsEnum,
   IsInt,
+  IsNotEmpty,
   IsOptional,
   IsString,
   Max,
@@ -13,7 +13,6 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { LatLngDto } from '../../common/dto/geo.dto.js';
-import { VehicleCategory } from '../../generated/prisma/enums.js';
 
 // A point plus the address text the app shows to the driver and in history.
 export class PlaceDto extends LatLngDto {
@@ -34,8 +33,11 @@ export class RequestRideDto {
   @Type(() => PlaceDto)
   dropoff: PlaceDto;
 
-  @IsEnum(VehicleCategory)
-  category: VehicleCategory;
+  // Not a fixed enum any more (see admin/vehicle-categories); RidesService
+  // rejects an unknown/inactive one when it looks up the fare for it.
+  @IsString()
+  @IsNotEmpty()
+  category: string;
 
   // A negotiable ride only: what the passenger offers to pay. Left out, the
   // suggested price from the fare table is used instead.

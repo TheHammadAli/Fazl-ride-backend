@@ -3,6 +3,7 @@ import { AuthModule } from '../auth/auth.module.js';
 import { CancellationsModule } from '../cancellations/cancellations.module.js';
 import { EarningsModule } from '../earnings/earnings.module.js';
 import { PresenceModule } from '../presence/presence.module.js';
+import { VehicleCategoriesModule } from '../vehicle-categories/vehicle-categories.module.js';
 import { AdminRidesController } from './admin-rides.controller.js';
 import { AdminRidesService } from './admin-rides.service.js';
 import { AdminFaresController } from './admin-fares.controller.js';
@@ -23,6 +24,7 @@ import { RidesService } from './rides.service.js';
     CancellationsModule,
     EarningsModule,
     RoutingModule,
+    VehicleCategoriesModule,
   ],
   controllers: [
     RidesController,

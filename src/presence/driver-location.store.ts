@@ -1,10 +1,9 @@
 import type { LatLng } from '../common/geo.js';
-import { VehicleCategory } from '../generated/prisma/enums.js';
 
 export interface NearbyDriver {
   userId: string;
   vehicleId: string;
-  category: VehicleCategory;
+  category: string;
   distanceMeters: number;
   lat: number;
   lng: number;
@@ -21,7 +20,7 @@ export interface DriverPosition {
 export interface NearbyQuery extends LatLng {
   radiusMeters: number;
   limit: number;
-  category?: VehicleCategory;
+  category?: string;
 }
 
 // Where live driver positions are kept and searched. PostGIS today; a Redis
@@ -30,7 +29,7 @@ export abstract class DriverLocationStore {
   abstract goOnline(
     userId: string,
     vehicleId: string,
-    category: VehicleCategory,
+    category: string,
     at: LatLng,
   ): Promise<void>;
   abstract goOffline(userId: string): Promise<void>;

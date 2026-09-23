@@ -1,8 +1,8 @@
 import { Transform, Type } from 'class-transformer';
 import {
   IsDefined,
-  IsEnum,
   IsInt,
+  IsNotEmpty,
   IsString,
   Matches,
   Max,
@@ -11,11 +11,13 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
-import { VehicleCategory } from '../../generated/prisma/enums.js';
 
 export class VehicleDto {
-  @IsEnum(VehicleCategory)
-  category: VehicleCategory;
+  // Not a fixed enum any more (see admin/vehicle-categories); DriversService
+  // rejects an unknown/inactive one.
+  @IsString()
+  @IsNotEmpty()
+  category: string;
 
   @IsString()
   @MinLength(1)

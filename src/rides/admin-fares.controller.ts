@@ -1,19 +1,11 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Param,
-  ParseEnumPipe,
-  Put,
-  UseGuards,
-} from '@nestjs/common';
+import { Body, Controller, Get, Param, Put, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import type { AuthUser } from '../common/decorators/current-user.decorator.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../common/guards/roles.guard.js';
-import { Role, VehicleCategory } from '../generated/prisma/enums.js';
+import { Role } from '../generated/prisma/enums.js';
 import { UpdateFareConfigDto } from './dto/fare-config.dto.js';
 import { FaresService } from './fares.service.js';
 
@@ -30,10 +22,12 @@ export class AdminFaresController {
     return this.fares.listConfigs();
   }
 
+  // `category` is no longer a fixed enum (see admin/vehicle-categories), so
+  // an unknown key here just 404s from updateConfig() instead of being
+  // rejected up front by a pipe.
   @Put(':category')
   update(
-    @Param('category', new ParseEnumPipe(VehicleCategory))
-    category: VehicleCategory,
+    @Param('category') category: string,
     @Body() dto: UpdateFareConfigDto,
     @CurrentUser() user: AuthUser,
   ) {

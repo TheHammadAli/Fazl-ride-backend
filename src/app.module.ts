@@ -22,6 +22,7 @@ import { PrismaModule } from './prisma/prisma.module.js';
 import { RidesModule } from './rides/rides.module.js';
 import { StorageModule } from './storage/storage.module.js';
 import { UsersModule } from './users/users.module.js';
+import { VehicleCategoriesModule } from './vehicle-categories/vehicle-categories.module.js';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { UsersModule } from './users/users.module.js';
     ApiKeysModule,
     AuthModule,
     UsersModule,
+    VehicleCategoriesModule,
     DriversModule,
     PresenceModule,
     RidesModule,

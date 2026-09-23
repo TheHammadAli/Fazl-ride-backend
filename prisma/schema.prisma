@@ -36,10 +36,29 @@ enum VehicleStatus {
   rejected
 }
 
-// Pakistan runs on two vehicle types only. The passenger picks the one they want.
-enum VehicleCategory {
-  bike
-  car
+// The kinds of vehicle a passenger can pick, e.g. bike/car - admin-managed
+// (see admin/vehicle-categories) instead of a fixed Postgres enum, so a new
+// one (e.g. rickshaw) can be added without a deploy. `key` is the stable id
+// used everywhere else (rides, vehicles, driver_presence, fare_configs).
+// `iconKey` must be one of the small set of icons the client apps already
+// know how to draw (see docs/VEHICLE_CATEGORIES.md) - adding a category with
+// an unrecognised iconKey just falls back to a generic vehicle icon on
+// clients until they are updated to recognise it.
+model VehicleCategory {
+  key       String   @id
+  label     String
+  iconKey   String
+  active    Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  vehicles        Vehicle[]
+  rides           Ride[]
+  driverPresences DriverPresence[]
+  fareConfig      FareConfig?
+
+  @@map("vehicle_categories")
 }
 
 enum DocumentType {
@@ -141,23 +160,25 @@ model DriverProfile {
 }
 
 model Vehicle {
-  id              String          @id @default(uuid()) @db.Uuid
-  driverProfileId String          @db.Uuid
-  category        VehicleCategory @default(car)
+  id              String        @id @default(uuid()) @db.Uuid
+  driverProfileId String        @db.Uuid
+  category        String        @default("car")
   make            String
   model           String
   year            Int
   color           String
-  plateNumber     String          @unique
-  status          VehicleStatus   @default(pending)
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
+  plateNumber     String        @unique
+  status          VehicleStatus @default(pending)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
 
   driverProfile DriverProfile    @relation(fields: [driverProfileId], references: [id], onDelete: Cascade)
+  categoryRef   VehicleCategory  @relation(fields: [category], references: [key])
   documents     DriverDocument[]
   rides         Ride[]
 
   @@index([driverProfileId])
+  @@index([category])
   @@map("vehicles")
 }
 
@@ -217,12 +238,14 @@ model AuditLog {
 
 // Fare rules per vehicle category, in PKR whole rupees (rates per km / minute can be fractional).
 model FareConfig {
-  category    VehicleCategory @id
+  category    String   @id
   baseFare    Int
   perKm       Float
   perMinute   Float
   minimumFare Int
-  updatedAt   DateTime        @updatedAt
+  updatedAt   DateTime @updatedAt
+
+  categoryRef VehicleCategory @relation(fields: [category], references: [key])
 
   @@map("fare_configs")
 }
@@ -233,7 +256,7 @@ model FareConfig {
 model DriverPresence {
   userId            String                                @id @db.Uuid
   vehicleId         String                                @db.Uuid
-  category          VehicleCategory
+  category          String
   isOnline          Boolean                               @default(false)
   busy              Boolean                               @default(false)
   location          Unsupported("geography(Point,4326)")?
@@ -242,6 +265,8 @@ model DriverPresence {
   locationUpdatedAt DateTime?
   onlineSince       DateTime?
   updatedAt         DateTime                              @updatedAt
+
+  categoryRef VehicleCategory @relation(fields: [category], references: [key])
 
   @@index([location], type: Gist)
   @@index([isOnline, category])
@@ -294,12 +319,12 @@ enum CancelledBy {
 // A ride from request to completion. Coordinates are plain floats here: the
 // fast spatial search happens on driver_presence, not on rides.
 model Ride {
-  id          String          @id @default(uuid()) @db.Uuid
-  passengerId String          @db.Uuid
-  driverId    String?         @db.Uuid
-  vehicleId   String?         @db.Uuid
-  category    VehicleCategory
-  status      RideStatus      @default(requested)
+  id          String     @id @default(uuid()) @db.Uuid
+  passengerId String     @db.Uuid
+  driverId    String?    @db.Uuid
+  vehicleId   String?    @db.Uuid
+  category    String
+  status      RideStatus @default(requested)
 
   pickupLat      Float
   pickupLng      Float
@@ -364,6 +389,7 @@ model Ride {
   passenger       User               @relation("RidePassenger", fields: [passengerId], references: [id])
   driver          User?              @relation("RideDriver", fields: [driverId], references: [id])
   vehicle         Vehicle?           @relation(fields: [vehicleId], references: [id])
+  categoryRef     VehicleCategory    @relation(fields: [category], references: [key])
   offers          RideOffer[]
   ratings         RideRating[]
   cancellationLog RideCancellation[]
@@ -372,6 +398,7 @@ model Ride {
   @@index([passengerId, status])
   @@index([driverId, status])
   @@index([status, expiresAt])
+  @@index([category])
   @@map("rides")
 }
 

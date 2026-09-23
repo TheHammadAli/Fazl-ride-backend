@@ -5,7 +5,6 @@ import {
   OnModuleDestroy,
 } from '@nestjs/common';
 import { DomainEvents } from '../events/domain-events.service.js';
-import { VehicleCategory } from '../generated/prisma/enums.js';
 import { DriverLocationStore } from '../presence/driver-location.store.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { RoutingProvider } from '../routing/routing.provider.js';
@@ -20,7 +19,7 @@ export interface OfferableRide {
   passengerId: string;
   pickupLat: number;
   pickupLng: number;
-  category: VehicleCategory;
+  category: string;
   searchRadiusMeters: number;
   // Bidding rides broadcast to everyone in range instead of a handful of the
   // nearest drivers; see RideSettings.negotiableOffersLimit.

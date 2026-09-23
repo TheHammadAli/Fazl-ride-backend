@@ -7,7 +7,7 @@ import {
 import { CancellationsService } from '../cancellations/cancellations.service.js';
 import { haversineMeters } from '../common/geo.js';
 import { DomainEvents } from '../events/domain-events.service.js';
-import { RideStatus, VehicleCategory } from '../generated/prisma/enums.js';
+import { RideStatus } from '../generated/prisma/enums.js';
 import { DriverLocationStore } from '../presence/driver-location.store.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CancelRideDto, RequestRideDto } from './dto/request-ride.dto.js';
@@ -25,6 +25,7 @@ import { RatingsService } from './ratings.service.js';
 import { RoutingProvider } from '../routing/routing.provider.js';
 import { RideSettings } from './rides.settings.js';
 import { billedDistanceMeters, FareRatesSnapshot } from './trip-distance.js';
+import { VehicleCategoriesService } from '../vehicle-categories/vehicle-categories.service.js';
 
 const IN_PROGRESS: RideStatus[] = [
   'requested',
@@ -47,6 +48,7 @@ export class RidesService {
     private readonly cancellations: CancellationsService,
     private readonly ratings: RatingsService,
     private readonly earnings: EarningsService,
+    private readonly vehicleCategories: VehicleCategoriesService,
   ) {}
 
   // The lowest a negotiable price may go for a ride whose fixed/estimated
@@ -71,6 +73,7 @@ export class RidesService {
   // in bidding mode, broadcasts it to everyone in range).
   async request(passengerId: string, dto: RequestRideDto) {
     await this.cancellations.assertNotBlocked(passengerId, 'passenger');
+    await this.vehicleCategories.assertActive(dto.category);
     const quote = await this.fares.quote(dto.pickup, dto.dropoff, dto.category);
     const negotiable = this.settings.pricingMode === 'bidding';
     if (negotiable && dto.offeredFare != null) {
@@ -917,7 +920,7 @@ export class RidesService {
     tx: { $queryRaw: PrismaService['$queryRaw'] },
     rideId: string,
   ): Promise<{
-    category: VehicleCategory;
+    category: string;
     status: RideStatus;
     driverId: string | null;
     passengerId: string;
@@ -926,7 +929,7 @@ export class RidesService {
   }> {
     const rows = await tx.$queryRaw<
       {
-        category: VehicleCategory;
+        category: string;
         status: RideStatus;
         driverId: string | null;
         passengerId: string;
@@ -940,9 +943,7 @@ export class RidesService {
     return rows[0];
   }
 
-  private async currentRates(
-    category: VehicleCategory,
-  ): Promise<FareRatesSnapshot> {
+  private async currentRates(category: string): Promise<FareRatesSnapshot> {
     return this.prisma.fareConfig.findUniqueOrThrow({ where: { category } });
   }
 
