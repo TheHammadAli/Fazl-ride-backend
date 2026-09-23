@@ -10,4 +10,14 @@ export function setupApp(app: INestApplication) {
       transform: true,
     }),
   );
+  // Mobile apps do not need CORS (no browser origin), but the web admin
+  // panel (fazl-parking-frontned) does. Comma-separated list; the local
+  // panel's dev server is included by default so it works with no setup.
+  const origins = String(
+    process.env.ADMIN_PANEL_ORIGINS ?? 'http://localhost:3001',
+  )
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
+  app.enableCors({ origin: origins, credentials: true });
 }
