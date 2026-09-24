@@ -34,6 +34,10 @@ services:
         sync: false
       - key: SUPABASE_BUCKET
         sync: false
-      # Testing only - leave unset (or "false") on this real, reachable server.
+      # Testing only - leave unset (or "false") normally; the client needs a
+      # way to log in without a real SMS provider yet, so this is temporarily
+      # "true" while they test the APK. Turn it back to "false" afterwards.
       - key: DEV_OTP_BYPASS
-        value: 'false'
+        value: 'true'
+      - key: DEV_OTP_CODE
+        value: '123456'
