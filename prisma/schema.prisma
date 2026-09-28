@@ -75,6 +75,8 @@ model User {
   phone         String     @unique
   name          String?
   email         String?    @unique
+  // Only set for web-admin accounts (email + password login); everyone else uses an OTP.
+  passwordHash  String?
   avatarKey     String?
   status        UserStatus @default(active)
   blockedReason String?

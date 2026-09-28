@@ -28,6 +28,11 @@ services:
         sync: false
       - key: SUPER_ADMIN_PHONES
         sync: false
+      # First web-admin login (email + password); see .env.example.
+      - key: ADMIN_BOOTSTRAP_EMAIL
+        sync: false
+      - key: ADMIN_BOOTSTRAP_PASSWORD
+        sync: false
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY

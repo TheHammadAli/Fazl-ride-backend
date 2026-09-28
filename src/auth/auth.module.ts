@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
+import { AdminBootstrapService } from './admin-bootstrap.service.js';
 import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
 import { JwtStrategy } from './jwt.strategy.js';
@@ -23,6 +24,7 @@ import { SmsProvider } from './sms/sms.provider.js';
   controllers: [AuthController],
   providers: [
     AuthService,
+    AdminBootstrapService,
     JwtStrategy,
     { provide: SmsProvider, useClass: ConsoleSmsProvider },
   ],

@@ -35,6 +35,12 @@ describe('API surface (e2e)', () => {
       .send({ phone: '12345' })
       .expect(400));
 
+  it('rejects an admin login with a malformed email', () =>
+    request(app.getHttpServer())
+      .post('/api/v1/auth/admin/login')
+      .send({ email: 'not-an-email', password: 'whatever-password' })
+      .expect(400));
+
   it('rejects unknown body fields', () =>
     request(app.getHttpServer())
       .post('/api/v1/auth/otp/request')

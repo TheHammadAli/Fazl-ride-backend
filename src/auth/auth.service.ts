@@ -16,6 +16,7 @@ import {
   timingSafeEqual,
 } from 'node:crypto';
 import { Role } from '../generated/prisma/enums.js';
+import { verifyPassword } from '../common/password.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { SmsProvider } from './sms/sms.provider.js';
 
@@ -104,6 +105,26 @@ export class AuthService {
     }
 
     const user = await this.findOrCreateUser(phone);
+    if (user.status === 'blocked') {
+      throw new ForbiddenException('Account is blocked');
+    }
+    return this.issueTokens(user.id);
+  }
+
+  async adminLogin(email: string, password: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { email: email.trim().toLowerCase() },
+      include: { roles: true },
+    });
+    // Always verify, even for an unknown email, so timing does not leak which exist.
+    const passwordOk = await verifyPassword(password, user?.passwordHash);
+    const isAdmin = user?.roles.some(
+      (r) => r.role === Role.admin || r.role === Role.super_admin,
+    );
+    // One message for every failure: never say which part was wrong.
+    if (!user || !passwordOk || !isAdmin) {
+      throw new UnauthorizedException('Invalid email or password');
+    }
     if (user.status === 'blocked') {
       throw new ForbiddenException('Account is blocked');
     }
