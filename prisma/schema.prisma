@@ -96,6 +96,7 @@ model User {
   ratingsGiven     RideRating[]       @relation("RatingRater")
   ratingsReceived  RideRating[]       @relation("RatingRatee")
   earnings         DriverEarning[]
+  sentRideMessages RideMessage[]
 
   @@map("users")
 }
@@ -396,12 +397,30 @@ model Ride {
   ratings         RideRating[]
   cancellationLog RideCancellation[]
   earningEntries  DriverEarning[]
+  messages        RideMessage[]
 
   @@index([passengerId, status])
   @@index([driverId, status])
   @@index([status, expiresAt])
   @@index([category])
   @@map("rides")
+}
+
+// In-app chat between the passenger and the assigned driver. Only exists
+// once a driver is assigned; see MESSAGING_ALLOWED in chat.service.ts for
+// exactly when sending is allowed (reading the history is not time-limited).
+model RideMessage {
+  id        String   @id @default(uuid()) @db.Uuid
+  rideId    String   @db.Uuid
+  senderId  String   @db.Uuid
+  body      String
+  createdAt DateTime @default(now())
+
+  ride   Ride @relation(fields: [rideId], references: [id], onDelete: Cascade)
+  sender User @relation(fields: [senderId], references: [id])
+
+  @@index([rideId, createdAt])
+  @@map("ride_messages")
 }
 
 // One offer of a ride to one driver. The first driver to accept wins.
