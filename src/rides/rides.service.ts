@@ -23,6 +23,7 @@ import {
 import { ratingView } from './rating.js';
 import { RatingsService } from './ratings.service.js';
 import { RoutingProvider } from '../routing/routing.provider.js';
+import { StorageService } from '../storage/storage.service.js';
 import { RideSettings } from './rides.settings.js';
 import { billedDistanceMeters, FareRatesSnapshot } from './trip-distance.js';
 import { VehicleCategoriesService } from '../vehicle-categories/vehicle-categories.service.js';
@@ -49,6 +50,7 @@ export class RidesService {
     private readonly ratings: RatingsService,
     private readonly earnings: EarningsService,
     private readonly vehicleCategories: VehicleCategoriesService,
+    private readonly storage: StorageService,
   ) {}
 
   // The lowest a negotiable price may go for a ride whose fixed/estimated
@@ -495,7 +497,13 @@ export class RidesService {
     const [drivers, presences] = await Promise.all([
       this.prisma.user.findMany({
         where: { id: { in: driverIds } },
-        select: { id: true, name: true, ratingSum: true, ratingCount: true },
+        select: {
+          id: true,
+          name: true,
+          avatarKey: true,
+          ratingSum: true,
+          ratingCount: true,
+        },
       }),
       this.prisma.driverPresence.findMany({
         where: { userId: { in: driverIds } },
@@ -521,6 +529,13 @@ export class RidesService {
       presences.map((p) => [p.userId, p.vehicleId]),
     );
     const vehicleById = new Map(vehicles.map((v) => [v.id, v]));
+    const avatarUrlByDriver = new Map(
+      await Promise.all(
+        drivers.map(
+          async (d) => [d.id, await this.avatarUrl(d.avatarKey)] as const,
+        ),
+      ),
+    );
 
     return offers.map((offer) => {
       const driver = driverById.get(offer.driverId);
@@ -537,6 +552,7 @@ export class RidesService {
           ? {
               id: driver.id,
               name: driver.name,
+              avatarUrl: avatarUrlByDriver.get(driver.id) ?? null,
               rating: ratingView(driver.ratingSum, driver.ratingCount),
               vehicle: vehicle ?? null,
             }
@@ -971,7 +987,19 @@ export class RidesService {
       driverLocation,
       driverEtaSeconds,
       driverDistanceToPickupMeters,
+      driverAvatarUrl: await this.avatarUrl(ride.driver?.avatarKey ?? null),
       myRating,
     });
+  }
+
+  // Reads must keep working when storage is briefly unreachable - a broken
+  // photo is better than a broken ride screen.
+  private async avatarUrl(key: string | null): Promise<string | null> {
+    if (!key) return null;
+    try {
+      return await this.storage.createSignedUrl(key, 60 * 60);
+    } catch {
+      return null;
+    }
   }
 }

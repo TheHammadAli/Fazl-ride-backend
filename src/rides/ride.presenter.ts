@@ -17,6 +17,7 @@ export const rideInclude = {
       id: true,
       name: true,
       phone: true,
+      avatarKey: true,
       ratingSum: true,
       ratingCount: true,
     },
@@ -42,6 +43,9 @@ export interface RideViewExtras {
   driverDistanceToPickupMeters?: number | null;
   // What the person looking at the ride gave the other party, if anything yet.
   myRating?: { stars: number; comment: string | null } | null;
+  // A short-lived signed URL, resolved by the caller (RidesService has the
+  // StorageService this presenter does not) - null while none is set.
+  driverAvatarUrl?: string | null;
 }
 
 // Phone numbers are shared only while a ride is on, and only with the two people on it
@@ -97,6 +101,7 @@ export function presentRide(
           id: ride.driver.id,
           name: ride.driver.name,
           phone: PHONE_VISIBLE.includes(ride.status) ? ride.driver.phone : null,
+          avatarUrl: extras.driverAvatarUrl ?? null,
           rating: ratingView(ride.driver.ratingSum, ride.driver.ratingCount),
           vehicle: ride.vehicle,
           location: extras.driverLocation
