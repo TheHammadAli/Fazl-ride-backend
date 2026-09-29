@@ -43,6 +43,7 @@ Events sent while the app was offline are **not replayed**. On every `connected`
 | `ride:update` | passenger and driver of the ride | ride object (same as `GET /rides/:id`) | any status change: accepted, arrived, started, completed, cancelled, expired, or back to `requested` after the driver backed out |
 | `driver:offline` | driver | `{ reason: "inactive", lastSeenAt }` | the server put this driver offline because no position arrived for 5 minutes; show it and offer "Go Online" |
 | `driver:location` | passenger | `{ rideId, status, lat, lng, etaSeconds, distanceToPickupMeters }` | while a driver is on the way (`accepted`, ETA and distance filled) and during the trip (`started`, both `null`); at most every 1.5 s |
+| `ride:message` | the other person on the ride | `{ id, rideId, senderId, senderRole, body, createdAt }` | the passenger or driver sent an in-app chat message (see "In-app chat" below) |
 
 Each person only receives their own events. Phone numbers appear in `ride:update` only while the ride is `accepted`, `arrived` or `started`.
 
@@ -58,6 +59,20 @@ There is no event for that expiry.
 Errors: `unauthenticated`, `forbidden` (not a driver), `invalid_payload`, `too_fast` (more than one message per 500 ms), or the reason
 the driver cannot send a position (for example "Go online before sending locations").
 Send about every 4 seconds while online. `POST /drivers/me/location` still works and does exactly the same.
+
+## In-app chat
+
+Plain REST, not a socket event to send - only `ride:message` above tells the *other* person a new one arrived, so refresh the
+thread over REST once it fires (there is no ack-based send/receive over the socket for this).
+
+- `POST /rides/:id/messages` `{ body }` (max 2000 chars) - only the ride's passenger or its assigned driver, and only while
+  the ride is `accepted`, `arrived` or `started` (the same window phone numbers are visible in). Returns the created message.
+- `GET /rides/:id/messages?limit&cursor` - the same two people, any time (reading old messages is never time-limited, even
+  after the ride ends). Newest page first internally, but `items` comes back oldest-first, ready to render top-to-bottom.
+  `nextCursor` (opaque, like the History feed's) is non-null when there are older messages; pass it back as `cursor` to load
+  them.
+
+Message shape: `{ id, rideId, senderId, senderRole: "passenger" | "driver", body, createdAt }`.
 
 Everything else (go online/offline, request, accept, decline, arrived, start, complete, cancel, rate) stays on REST.
 
