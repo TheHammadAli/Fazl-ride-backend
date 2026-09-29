@@ -10,6 +10,7 @@ import { AppThrottlerGuard } from './common/guards/app-throttler.guard.js';
 import { AuthModule } from './auth/auth.module.js';
 import { validateEnv } from './config/env.validation.js';
 import { CancellationsModule } from './cancellations/cancellations.module.js';
+import { ChatModule } from './chat/chat.module.js';
 import { EarningsModule } from './earnings/earnings.module.js';
 import { DomainEventsModule } from './events/domain-events.module.js';
 import { DriversModule } from './drivers/drivers.module.js';
@@ -47,6 +48,7 @@ import { VehicleCategoriesModule } from './vehicle-categories/vehicle-categories
     DriversModule,
     PresenceModule,
     RidesModule,
+    ChatModule,
     RealtimeModule,
     OrderTrackingModule,
     AdminModule,
