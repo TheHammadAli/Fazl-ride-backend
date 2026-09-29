@@ -72,6 +72,16 @@ export class RealtimeEventsService implements OnModuleInit, OnModuleDestroy {
         // The trip goes back to searching: the passenger sees it as a plain update.
         return this.sendRideUpdate(p.rideId, { skipUserId: p.driverId });
 
+      case 'ride.message':
+        return this.gateway.emitToUser(p.recipientId, 'ride:message', {
+          id: p.id,
+          rideId: p.rideId,
+          senderId: p.senderId,
+          senderRole: p.senderRole,
+          body: p.body,
+          createdAt: p.createdAt,
+        });
+
       case 'driver.location':
         return this.sendDriverLocation(p);
 
