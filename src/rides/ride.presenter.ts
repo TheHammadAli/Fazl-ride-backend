@@ -61,6 +61,7 @@ export function presentRide(
     id: ride.id,
     status: ride.status,
     category: ride.category,
+    tripType: ride.tripType,
     currency: 'PKR',
     paymentMethod: ride.paymentMethod,
     pickup: {

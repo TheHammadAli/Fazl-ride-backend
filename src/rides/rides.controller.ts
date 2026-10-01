@@ -14,7 +14,7 @@ import type { AuthUser } from '../common/decorators/current-user.decorator.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../common/guards/roles.guard.js';
-import { Role } from '../generated/prisma/enums.js';
+import { Role, TripType } from '../generated/prisma/enums.js';
 import { EstimateRideDto } from './dto/ride.dto.js';
 import { CancelRideDto, RequestRideDto } from './dto/request-ride.dto.js';
 import { BidDto, ChooseOfferDto, UpdateOfferDto } from './dto/bid.dto.js';
@@ -38,7 +38,11 @@ export class RidesController {
   @Post('estimate')
   @HttpCode(200)
   estimate(@Body() dto: EstimateRideDto) {
-    return this.fares.estimate(dto.pickup, dto.dropoff);
+    return this.fares.estimate(
+      dto.pickup,
+      dto.dropoff,
+      dto.tripType ?? TripType.within_city,
+    );
   }
 
   @Post()

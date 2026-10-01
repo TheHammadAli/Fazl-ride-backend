@@ -7,7 +7,7 @@ import {
 import { CancellationsService } from '../cancellations/cancellations.service.js';
 import { haversineMeters } from '../common/geo.js';
 import { DomainEvents } from '../events/domain-events.service.js';
-import { RideStatus } from '../generated/prisma/enums.js';
+import { RideStatus, TripType } from '../generated/prisma/enums.js';
 import { DriverLocationStore } from '../presence/driver-location.store.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CancelRideDto, RequestRideDto } from './dto/request-ride.dto.js';
@@ -76,7 +76,13 @@ export class RidesService {
   async request(passengerId: string, dto: RequestRideDto) {
     await this.cancellations.assertNotBlocked(passengerId, 'passenger');
     await this.vehicleCategories.assertActive(dto.category);
-    const quote = await this.fares.quote(dto.pickup, dto.dropoff, dto.category);
+    const tripType = dto.tripType ?? TripType.within_city;
+    const quote = await this.fares.quote(
+      dto.pickup,
+      dto.dropoff,
+      dto.category,
+      tripType,
+    );
     const negotiable = this.settings.pricingMode === 'bidding';
     if (negotiable && dto.offeredFare != null) {
       this.assertAboveMinimumFare(dto.offeredFare, quote.fare);
@@ -88,6 +94,7 @@ export class RidesService {
         data: {
           passengerId,
           category: dto.category,
+          tripType,
           pickupLat: dto.pickup.lat,
           pickupLng: dto.pickup.lng,
           pickupAddress: dto.pickup.address,
@@ -717,7 +724,7 @@ export class RidesService {
     } else {
       const rates =
         (ride.rates as FareRatesSnapshot | null) ??
-        (await this.currentRates(ride.category));
+        (await this.currentRates(ride.category, ride.tripType));
       fare = Math.min(
         calculateFare(rates, distanceMeters, durationSeconds),
         Math.round(ride.estimatedFare * this.settings.maxFareFactor),
@@ -959,8 +966,13 @@ export class RidesService {
     return rows[0];
   }
 
-  private async currentRates(category: string): Promise<FareRatesSnapshot> {
-    return this.prisma.fareConfig.findUniqueOrThrow({ where: { category } });
+  private async currentRates(
+    category: string,
+    tripType: TripType,
+  ): Promise<FareRatesSnapshot> {
+    return this.prisma.fareConfig.findUniqueOrThrow({
+      where: { category_tripType: { category, tripType } },
+    });
   }
 
   // Adds the driver's live position and pickup ETA/distance while they come to the passenger.

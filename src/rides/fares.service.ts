@@ -12,9 +12,15 @@ import { UpdateFareConfigDto } from './dto/fare-config.dto.js';
 import { calculateFare } from './fare.calculator.js';
 import { RoutingProvider } from '../routing/routing.provider.js';
 import { RideSettings } from './rides.settings.js';
+import { TripType } from '../generated/prisma/enums.js';
 
 const MIN_TRIP_METERS = 50;
-const MAX_TRIP_METERS = 200_000;
+// within_city keeps the original cap; city_to_city covers any route inside
+// Pakistan (Karachi-Peshawar is around 1,600 km).
+const MAX_TRIP_METERS: Record<TripType, number> = {
+  within_city: 200_000,
+  city_to_city: 2_000_000,
+};
 // Drivers further than this from the pickup are not shown as "nearby".
 const NEARBY_RADIUS_METERS = 5_000;
 
@@ -29,60 +35,76 @@ export class FaresService {
   ) {}
 
   // Admin's own list (GET admin/fares) - every category, active or not, so a
-  // deactivated one can still be found and re-enabled.
-  listConfigs() {
-    return this.prisma.fareConfig.findMany({ orderBy: { baseFare: 'asc' } });
+  // deactivated one can still be found and re-enabled. Optionally narrowed to
+  // one trip type.
+  listConfigs(tripType?: TripType) {
+    return this.prisma.fareConfig.findMany({
+      where: tripType ? { tripType } : undefined,
+      orderBy: [{ tripType: 'asc' }, { baseFare: 'asc' }],
+    });
   }
 
-  // Only categories a passenger can actually book right now.
-  private listActiveConfigs() {
+  // Only categories a passenger can actually book right now, for one trip type.
+  private listActiveConfigs(tripType: TripType) {
     return this.prisma.fareConfig.findMany({
-      where: { categoryRef: { active: true } },
+      where: { tripType, categoryRef: { active: true } },
       orderBy: { baseFare: 'asc' },
     });
   }
 
   async updateConfig(
     category: string,
+    tripType: TripType,
     dto: UpdateFareConfigDto,
     actorId: string,
   ) {
     const existing = await this.prisma.fareConfig.findUnique({
-      where: { category },
+      where: { category_tripType: { category, tripType } },
     });
     if (!existing) throw new NotFoundException('Fare config not found');
     const updated = await this.prisma.fareConfig.update({
-      where: { category },
+      where: { category_tripType: { category, tripType } },
       data: dto,
     });
-    await this.audit.log(actorId, 'fare.update', 'fare_config', category, {
+    const auditKey = `${category}/${tripType}`;
+    await this.audit.log(actorId, 'fare.update', 'fare_config', auditKey, {
       before: JSON.parse(JSON.stringify(existing)),
       changes: Object.fromEntries(Object.entries(dto)),
     });
     return updated;
   }
 
-  private assertReasonableTrip(pickup: LatLng, dropoff: LatLng) {
+  private assertReasonableTrip(
+    pickup: LatLng,
+    dropoff: LatLng,
+    tripType: TripType,
+  ) {
     const straight = haversineMeters(pickup, dropoff);
     if (straight < MIN_TRIP_METERS) {
       throw new BadRequestException(
         'Pickup and drop-off are too close together',
       );
     }
-    if (straight > MAX_TRIP_METERS) {
+    const max = MAX_TRIP_METERS[tripType];
+    if (straight > max) {
       throw new BadRequestException(
-        'Trips longer than 200 km are not supported',
+        `Trips longer than ${Math.round(max / 1000)} km are not supported`,
       );
     }
   }
 
   // Price and route for one category, used when a ride is actually requested.
-  async quote(pickup: LatLng, dropoff: LatLng, category: string) {
-    this.assertReasonableTrip(pickup, dropoff);
+  async quote(
+    pickup: LatLng,
+    dropoff: LatLng,
+    category: string,
+    tripType: TripType,
+  ) {
+    this.assertReasonableTrip(pickup, dropoff, tripType);
     const [route, config] = await Promise.all([
       this.routing.route(pickup, dropoff),
       this.prisma.fareConfig.findUnique({
-        where: { category },
+        where: { category_tripType: { category, tripType } },
         include: { categoryRef: true },
       }),
     ]);
@@ -104,11 +126,11 @@ export class FaresService {
   }
 
   // Price for every category for one route, so the app can show them side by side.
-  async estimate(pickup: LatLng, dropoff: LatLng) {
-    this.assertReasonableTrip(pickup, dropoff);
+  async estimate(pickup: LatLng, dropoff: LatLng, tripType: TripType) {
+    this.assertReasonableTrip(pickup, dropoff, tripType);
     const [route, configs, nearby] = await Promise.all([
       this.routing.route(pickup, dropoff),
-      this.listActiveConfigs(),
+      this.listActiveConfigs(tripType),
       this.locations.findNearby({
         ...pickup,
         radiusMeters: NEARBY_RADIUS_METERS,
@@ -142,6 +164,7 @@ export class FaresService {
       distanceMeters: route.distanceMeters,
       durationSeconds: route.durationSeconds,
       currency: 'PKR',
+      tripType,
       // Lets the app decide, before requesting, whether to show an editable
       // "your price" (bidding) or just a Book button (fixed) - RIDE_PRICING_MODE.
       negotiable: this.settings.pricingMode === 'bidding',
