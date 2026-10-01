@@ -6,7 +6,7 @@ import {
   IsUUID,
 } from 'class-validator';
 import { PaginationDto } from '../../common/dto/pagination.dto.js';
-import { RideStatus } from '../../generated/prisma/enums.js';
+import { RideStatus, TripType } from '../../generated/prisma/enums.js';
 
 export class ListRidesDto extends PaginationDto {
   @IsOptional()
@@ -18,6 +18,10 @@ export class ListRidesDto extends PaginationDto {
   @IsOptional()
   @IsString()
   category?: string;
+
+  @IsOptional()
+  @IsEnum(TripType)
+  tripType?: TripType;
 
   @IsOptional()
   @IsUUID()

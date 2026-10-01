@@ -14,6 +14,7 @@ export class AdminRidesService {
     const where: Prisma.RideWhereInput = {
       ...(q.status && { status: q.status }),
       ...(q.category && { category: q.category }),
+      ...(q.tripType && { tripType: q.tripType }),
       ...(q.passengerId && { passengerId: q.passengerId }),
       ...(q.driverId && { driverId: q.driverId }),
       ...((q.from || q.to) && {
@@ -38,6 +39,7 @@ export class AdminRidesService {
         id: r.id,
         status: r.status,
         category: r.category,
+        tripType: r.tripType,
         pickupAddress: r.pickupAddress,
         dropoffAddress: r.dropoffAddress,
         estimatedFare: r.estimatedFare,
