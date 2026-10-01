@@ -23,6 +23,14 @@ enum UserStatus {
   deleted
 }
 
+// Within one city (the original flow) vs between two cities (long trips:
+// different fare card, no change to matching - a driver is still found near
+// the pickup point regardless of how far the drop-off is).
+enum TripType {
+  within_city
+  city_to_city
+}
+
 enum DriverStatus {
   pending
   approved
@@ -56,7 +64,7 @@ model VehicleCategory {
   vehicles        Vehicle[]
   rides           Ride[]
   driverPresences DriverPresence[]
-  fareConfig      FareConfig?
+  fareConfigs     FareConfig[]
 
   @@map("vehicle_categories")
 }
@@ -241,7 +249,8 @@ model AuditLog {
 
 // Fare rules per vehicle category, in PKR whole rupees (rates per km / minute can be fractional).
 model FareConfig {
-  category    String   @id
+  category    String
+  tripType    TripType @default(within_city)
   baseFare    Int
   perKm       Float
   perMinute   Float
@@ -250,6 +259,7 @@ model FareConfig {
 
   categoryRef VehicleCategory @relation(fields: [category], references: [key])
 
+  @@id([category, tripType])
   @@map("fare_configs")
 }
 
@@ -327,6 +337,7 @@ model Ride {
   driverId    String?    @db.Uuid
   vehicleId   String?    @db.Uuid
   category    String
+  tripType    TripType   @default(within_city)
   status      RideStatus @default(requested)
 
   pickupLat      Float
@@ -403,6 +414,7 @@ model Ride {
   @@index([driverId, status])
   @@index([status, expiresAt])
   @@index([category])
+  @@index([tripType])
   @@map("rides")
 }
 
