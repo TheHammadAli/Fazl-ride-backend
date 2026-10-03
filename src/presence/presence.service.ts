@@ -10,6 +10,7 @@ import {
   DEFAULT_TZ_OFFSET_MINUTES,
 } from '../common/time.js';
 import { CancellationsService } from '../cancellations/cancellations.service.js';
+import { findMissingProfile } from '../drivers/driver-requirements.js';
 import { DomainEvents } from '../events/domain-events.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { DriverLocationStore } from './driver-location.store.js';
@@ -41,10 +42,21 @@ export class PresenceService {
           where: { status: 'approved' },
           orderBy: { createdAt: 'asc' },
         },
+        user: { select: { name: true, avatarKey: true } },
       },
     });
     if (!profile || profile.status !== 'approved') {
       throw new ForbiddenException('Your driver account is not approved');
+    }
+    // Drivers approved before name/photo/dates became required, or whose
+    // licence has since expired, finish their profile before driving.
+    const missingProfile = findMissingProfile(profile.user, profile);
+    if (missingProfile.length) {
+      throw new ForbiddenException({
+        code: 'DRIVER_PROFILE_INCOMPLETE',
+        message: 'Complete your driver profile before going online',
+        missingProfile,
+      });
     }
     const vehicle = dto.vehicleId
       ? profile.vehicles.find((v) => v.id === dto.vehicleId)
