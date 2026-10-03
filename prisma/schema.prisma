@@ -76,6 +76,8 @@ enum DocumentType {
   license_back
   selfie
   vehicle_registration
+  // The vehicle from the front or back with its number plate readable.
+  vehicle_photo
 }
 
 model User {
@@ -154,13 +156,13 @@ model DriverProfile {
   userId           String       @unique @db.Uuid
   cnic             String       @unique
   licenseNumber    String
-  status           DriverStatus @default(pending)
-  rejectionReason  String?
   // Null only for drivers who applied before these became required; such a
   // driver cannot go online until they fill them in (see driver-requirements).
   licenseExpiry    DateTime?    @db.Date
   dateOfBirth      DateTime?    @db.Date
   emergencyContact String?
+  status           DriverStatus @default(pending)
+  rejectionReason  String?
   suspensionReason String?
   reviewedById     String?      @db.Uuid
   reviewedAt       DateTime?
@@ -200,7 +202,7 @@ model Vehicle {
 
 // Metadata for a file kept in object storage. The file itself is private and
 // only ever served through short-lived signed URLs. `vehicleId` is set for
-// vehicle_registration; the other types belong to the driver.
+// vehicle_registration and vehicle_photo; the other types belong to the driver.
 model DriverDocument {
   id              String       @id @default(uuid()) @db.Uuid
   driverProfileId String       @db.Uuid
