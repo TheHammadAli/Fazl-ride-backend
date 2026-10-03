@@ -156,6 +156,11 @@ model DriverProfile {
   licenseNumber    String
   status           DriverStatus @default(pending)
   rejectionReason  String?
+  // Null only for drivers who applied before these became required; such a
+  // driver cannot go online until they fill them in (see driver-requirements).
+  licenseExpiry    DateTime?    @db.Date
+  dateOfBirth      DateTime?    @db.Date
+  emergencyContact String?
   suspensionReason String?
   reviewedById     String?      @db.Uuid
   reviewedAt       DateTime?
