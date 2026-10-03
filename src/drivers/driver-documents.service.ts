@@ -10,6 +10,8 @@ import { detectFileType } from '../common/file-type.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { StorageService } from '../storage/storage.service.js';
 import { DriverApprovalService } from './driver-approval.service.js';
+import { DriverIdentityService } from './driver-identity.service.js';
+import { isVehicleDocument } from './driver-requirements.js';
 import { UploadDocumentDto } from './dto/document.dto.js';
 
 export const MAX_DOCUMENT_BYTES = 5 * 1024 * 1024;
@@ -33,9 +35,12 @@ export class DriverDocumentsService {
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
     private readonly approval: DriverApprovalService,
+    private readonly identity: DriverIdentityService,
   ) {}
 
   // Uploading the same type (and vehicle) again replaces the previous file.
+  // An approved driver replacing a reviewed paper (a renewed licence, a new
+  // CNIC) goes back to review, like a changed name or photo.
   async upload(
     userId: string,
     dto: UploadDocumentDto,
@@ -60,15 +65,13 @@ export class DriverDocumentsService {
       throw new ForbiddenException('Your driver account is suspended');
     }
 
-    const isVehicleDoc = dto.type === 'vehicle_registration';
+    const isVehicleDoc = isVehicleDocument(dto.type);
     if (isVehicleDoc && !dto.vehicleId) {
-      throw new BadRequestException(
-        'vehicleId is required for vehicle_registration',
-      );
+      throw new BadRequestException(`vehicleId is required for ${dto.type}`);
     }
     if (!isVehicleDoc && dto.vehicleId) {
       throw new BadRequestException(
-        'vehicleId is only allowed for vehicle_registration',
+        'vehicleId is only allowed for vehicle documents',
       );
     }
     if (
@@ -77,6 +80,19 @@ export class DriverDocumentsService {
     ) {
       throw new NotFoundException('Vehicle not found');
     }
+
+    // Only replacing something the admin already saw needs a new review;
+    // adding a paper that became required later does not.
+    const replacing =
+      profile.status === 'approved' &&
+      (await this.prisma.driverDocument.count({
+        where: {
+          driverProfileId: profile.id,
+          type: dto.type,
+          vehicleId: dto.vehicleId ?? null,
+        },
+      })) > 0;
+    if (replacing) await this.identity.beforeChange(userId);
 
     const storageKey = `drivers/${profile.id}/${dto.type}-${randomUUID()}.${detected.ext}`;
     await this.storage.upload(storageKey, file.buffer, detected.mime);
@@ -110,9 +126,13 @@ export class DriverDocumentsService {
       throw error;
     }
     await this.removeQuietly(replaced.map((d) => d.storageKey));
-    // Opportunistic: while DEV_AUTO_APPROVE_DRIVERS=true, this may have just
-    // satisfied the last missing requirement.
-    await this.approval.maybeAutoApprove(profile.id);
+    if (replacing) {
+      await this.identity.sendForReview(userId, [`document:${dto.type}`]);
+    } else {
+      // Opportunistic: while DEV_AUTO_APPROVE_DRIVERS=true, this may have
+      // just satisfied the last missing requirement.
+      await this.approval.maybeAutoApprove(profile.id);
+    }
     return this.withUrl(created);
   }
 

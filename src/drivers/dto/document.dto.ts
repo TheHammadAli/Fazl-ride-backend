@@ -5,7 +5,7 @@ export class UploadDocumentDto {
   @IsEnum(DocumentType)
   type: DocumentType;
 
-  // Required for vehicle_registration, not allowed for the other types.
+  // Required for vehicle_registration and vehicle_photo, not allowed otherwise.
   @IsOptional()
   @IsUUID()
   vehicleId?: string;

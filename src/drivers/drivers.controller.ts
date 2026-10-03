@@ -89,6 +89,7 @@ export class DriversController {
             'license_back',
             'selfie',
             'vehicle_registration',
+            'vehicle_photo',
           ],
         },
         vehicleId: { type: 'string', format: 'uuid' },
