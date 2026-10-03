@@ -4,15 +4,25 @@ import { DocumentType } from '../generated/prisma/enums.js';
 
 // What a driver must upload before an admin can approve. The business may
 // change this, so it can be overridden with DRIVER_REQUIRED_DOCUMENTS
-// (comma-separated DocumentType values). `vehicle_registration` is required
+// (comma-separated DocumentType values). Vehicle documents are required
 // once per vehicle, every other type once per driver.
 export const DEFAULT_REQUIRED_DOCUMENTS: DocumentType[] = [
   'cnic_front',
   'cnic_back',
   'license_front',
+  'license_back',
   'selfie',
   'vehicle_registration',
+  'vehicle_photo',
 ];
+
+export const VEHICLE_DOCUMENT_TYPES: DocumentType[] = [
+  'vehicle_registration',
+  'vehicle_photo',
+];
+
+export const isVehicleDocument = (type: DocumentType) =>
+  VEHICLE_DOCUMENT_TYPES.includes(type);
 
 export interface MissingDocument {
   type: DocumentType;
@@ -41,17 +51,16 @@ export function findMissingDocuments(
   documents: { type: DocumentType; vehicleId: string | null }[],
 ): MissingDocument[] {
   const missing: MissingDocument[] = required
-    .filter((type) => type !== 'vehicle_registration')
+    .filter((type) => !isVehicleDocument(type))
     .filter((type) => !documents.some((d) => d.type === type))
     .map((type) => ({ type }));
 
-  if (required.includes('vehicle_registration')) {
+  for (const type of required.filter(isVehicleDocument)) {
     for (const vehicle of vehicles) {
       const has = documents.some(
-        (d) => d.type === 'vehicle_registration' && d.vehicleId === vehicle.id,
+        (d) => d.type === type && d.vehicleId === vehicle.id,
       );
-      if (!has)
-        missing.push({ type: 'vehicle_registration', vehicleId: vehicle.id });
+      if (!has) missing.push({ type, vehicleId: vehicle.id });
     }
   }
   return missing;
