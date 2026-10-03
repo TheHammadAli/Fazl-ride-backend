@@ -9,7 +9,10 @@ import { ConfigService } from '@nestjs/config';
 import { Role } from '../generated/prisma/enums.js';
 import { AuditService } from '../audit/audit.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { DriverRequirementsService } from './driver-requirements.js';
+import {
+  DriverRequirementsService,
+  findMissingProfile,
+} from './driver-requirements.js';
 
 // Approving a driver also approves the vehicles they applied with and grants
 // the `driver` role, which unlocks Driver mode in the app. One place decides
@@ -31,7 +34,11 @@ export class DriverApprovalService {
   async approve(profileId: string, actorId: string | null, action: string) {
     const profile = await this.prisma.driverProfile.findUnique({
       where: { id: profileId },
-      include: { vehicles: true, documents: true },
+      include: {
+        vehicles: true,
+        documents: true,
+        user: { select: { name: true, avatarKey: true } },
+      },
     });
     if (!profile) throw new NotFoundException('Driver application not found');
     if (profile.status === 'approved') {
@@ -48,6 +55,13 @@ export class DriverApprovalService {
       throw new BadRequestException({
         message: 'Required documents are missing',
         missing,
+      });
+    }
+    const missingProfile = findMissingProfile(profile.user, profile);
+    if (missingProfile.length) {
+      throw new BadRequestException({
+        message: 'The driver profile is incomplete',
+        missingProfile,
       });
     }
     await this.prisma.$transaction([
