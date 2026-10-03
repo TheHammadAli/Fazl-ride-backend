@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   UploadedFile,
   UseGuards,
@@ -20,7 +21,11 @@ import {
   MAX_DOCUMENT_BYTES,
 } from './driver-documents.service.js';
 import { UploadDocumentDto } from './dto/document.dto.js';
-import { ApplyDriverDto, VehicleDto } from './dto/driver.dto.js';
+import {
+  ApplyDriverDto,
+  UpdateDriverProfileDto,
+  VehicleDto,
+} from './dto/driver.dto.js';
 import { DriversService } from './drivers.service.js';
 
 @ApiTags('drivers')
@@ -41,6 +46,16 @@ export class DriversController {
   @Get('me')
   getMine(@CurrentUser() user: AuthUser) {
     return this.drivers.getMine(user.id);
+  }
+
+  // Date of birth, licence expiry, emergency contact. Changing an already-set
+  // date of birth or licence expiry sends an approved driver back for review.
+  @Patch('me')
+  updateMine(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: UpdateDriverProfileDto,
+  ) {
+    return this.drivers.updateProfile(user.id, dto);
   }
 
   @Post('me/vehicles')
