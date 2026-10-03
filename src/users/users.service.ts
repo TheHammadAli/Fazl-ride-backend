@@ -10,6 +10,8 @@ import { randomUUID } from 'node:crypto';
 import { DomainEvents } from '../events/domain-events.service.js';
 import { AuditService } from '../audit/audit.service.js';
 import { detectFileType } from '../common/file-type.js';
+import { DriverIdentityService } from '../drivers/driver-identity.service.js';
+import { findMissingProfile } from '../drivers/driver-requirements.js';
 import { ratingView } from '../rides/rating.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { StorageService } from '../storage/storage.service.js';
@@ -27,6 +29,7 @@ export class UsersService {
     private readonly storage: StorageService,
     private readonly audit: AuditService,
     private readonly events: DomainEvents,
+    private readonly driverIdentity: DriverIdentityService,
   ) {}
 
   async getMe(userId: string) {
@@ -34,7 +37,15 @@ export class UsersService {
       where: { id: userId },
       include: {
         roles: true,
-        driverProfile: { select: { status: true, rejectionReason: true } },
+        driverProfile: {
+          select: {
+            status: true,
+            rejectionReason: true,
+            dateOfBirth: true,
+            licenseExpiry: true,
+            emergencyContact: true,
+          },
+        },
       },
     });
     if (!user) throw new NotFoundException('User not found');
@@ -50,12 +61,20 @@ export class UsersService {
         ? {
             status: user.driverProfile.status,
             rejectionReason: user.driverProfile.rejectionReason,
+            missingProfile: findMissingProfile(user, user.driverProfile),
           }
         : null,
     };
   }
 
   async updateMe(userId: string, dto: UpdateUserDto) {
+    const current = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { name: true },
+    });
+    const nameChanged =
+      dto.name !== undefined && dto.name.trim() !== (current.name ?? '').trim();
+    if (nameChanged) await this.driverIdentity.beforeChange(userId);
     try {
       await this.prisma.user.update({ where: { id: userId }, data: dto });
     } catch (error: any) {
@@ -63,6 +82,10 @@ export class UsersService {
         throw new ConflictException('Email is already in use');
       }
       throw error;
+    }
+    if (nameChanged) {
+      await this.driverIdentity.sendForReview(userId, ['name']);
+      await this.driverIdentity.recheckPending(userId);
     }
     return this.getMe(userId);
   }
@@ -78,6 +101,7 @@ export class UsersService {
       );
     }
 
+    await this.driverIdentity.beforeChange(userId);
     const key = `users/${userId}/avatar-${randomUUID()}.${detected.ext}`;
     await this.storage.upload(key, file.buffer, detected.mime);
     let previous: string | null;
@@ -95,6 +119,8 @@ export class UsersService {
       throw error;
     }
     if (previous) await this.removeQuietly([previous]);
+    await this.driverIdentity.sendForReview(userId, ['avatar']);
+    await this.driverIdentity.recheckPending(userId);
     return this.getMe(userId);
   }
 
@@ -102,11 +128,14 @@ export class UsersService {
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
     });
+    if (!user.avatarKey) return this.getMe(userId);
+    await this.driverIdentity.beforeChange(userId);
     await this.prisma.user.update({
       where: { id: userId },
       data: { avatarKey: null },
     });
-    if (user.avatarKey) await this.removeQuietly([user.avatarKey]);
+    await this.removeQuietly([user.avatarKey]);
+    await this.driverIdentity.sendForReview(userId, ['avatar']);
     return this.getMe(userId);
   }
 
