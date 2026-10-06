@@ -4,6 +4,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { ActivityModule } from './activity/activity.module.js';
 import { AdminModule } from './admin/admin.module.js';
+import { AdminNotificationsModule } from './admin-notifications/admin-notifications.module.js';
 import { ApiKeysModule } from './api-keys/api-keys.module.js';
 import { AuditModule } from './audit/audit.module.js';
 import { AppThrottlerGuard } from './common/guards/app-throttler.guard.js';
@@ -52,6 +53,7 @@ import { VehicleCategoriesModule } from './vehicle-categories/vehicle-categories
     RealtimeModule,
     OrderTrackingModule,
     AdminModule,
+    AdminNotificationsModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: AppThrottlerGuard }],
