@@ -56,6 +56,9 @@ model VehicleCategory {
   key       String   @id
   label     String
   iconKey   String
+  // Which service lists it: 'ride' (passengers) or 'freight' (goods: loader
+  // rickshaw, pickup, truck, dumper...).
+  service   String   @default("ride")
   active    Boolean  @default(true)
   sortOrder Int      @default(0)
   createdAt DateTime @default(now())
@@ -352,6 +355,14 @@ model Ride {
   category    String
   tripType    TripType   @default(within_city)
   status      RideStatus @default(requested)
+  // 'ride' or 'freight'. A freight booking goes to every nearby driver of
+  // its vehicle type, who accept or counter the offered fare.
+  service         String  @default("ride")
+  loadDescription String?
+  loadWeightKg    Int?
+  helpersNeeded   Int?
+  // Private storage key of the photo of the goods.
+  loadPhotoKey    String?
 
   pickupLat      Float
   pickupLng      Float
