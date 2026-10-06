@@ -143,6 +143,12 @@ export class RidesService {
             loadWeightKg: dto.loadWeightKg,
             helpersNeeded: dto.helpersNeeded,
             loadPhotoKey: dto.loadPhotoKey,
+            pickupFloor: dto.pickupFloor,
+            pickupHasLift: dto.pickupHasLift,
+            dropoffFloor: dto.dropoffFloor,
+            dropoffHasLift: dto.dropoffHasLift,
+            needsLoading: dto.needsLoading,
+            needsUnloading: dto.needsUnloading,
           }),
         },
         include: rideInclude,
@@ -177,15 +183,18 @@ export class RidesService {
       ...(dto.loadDescription ? [] : ['loadDescription']),
       ...(dto.loadWeightKg ? [] : ['loadWeightKg']),
       ...(dto.helpersNeeded !== undefined ? [] : ['helpersNeeded']),
-      ...(dto.loadPhotoKey ? [] : ['loadPhotoKey']),
     ];
     if (missing.length) {
       throw new BadRequestException({
-        message: 'Describe the load, with a photo',
+        message: 'Describe the load and its weight',
         missing,
       });
     }
-    if (!dto.loadPhotoKey!.startsWith(`freight/${passengerId}/`)) {
+    // The photo is optional, but only one this customer uploaded.
+    if (
+      dto.loadPhotoKey &&
+      !dto.loadPhotoKey.startsWith(`freight/${passengerId}/`)
+    ) {
       throw new BadRequestException('Upload the photo of the goods again');
     }
   }

@@ -65,7 +65,7 @@ export function presentRide(
     category: ride.category,
     tripType: ride.tripType,
     service: ride.service,
-    // Freight: who it was sent to and what is being moved.
+    // Freight: what is being moved, and what it takes at each end.
     freight:
       ride.service === 'freight'
         ? {
@@ -73,6 +73,12 @@ export function presentRide(
             loadWeightKg: ride.loadWeightKg,
             helpersNeeded: ride.helpersNeeded,
             loadPhotoUrl: extras.loadPhotoUrl ?? null,
+            pickupFloor: ride.pickupFloor,
+            pickupHasLift: ride.pickupHasLift,
+            dropoffFloor: ride.dropoffFloor,
+            dropoffHasLift: ride.dropoffHasLift,
+            needsLoading: ride.needsLoading,
+            needsUnloading: ride.needsUnloading,
           }
         : null,
     currency: 'PKR',

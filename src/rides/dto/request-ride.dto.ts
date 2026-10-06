@@ -78,7 +78,39 @@ export class RequestRideDto {
   @Max(10)
   helpersNeeded?: number;
 
-  // From POST freight/load-photo.
+  // Freight: floor at each end (0 = ground), whether there is a lift, and
+  // whether the driver/helpers load and unload.
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(60)
+  pickupFloor?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  pickupHasLift?: boolean;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(60)
+  dropoffFloor?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  dropoffHasLift?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  needsLoading?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  needsUnloading?: boolean;
+
+  // From POST freight/load-photo. Optional.
   @IsOptional()
   @IsString()
   @Matches(/^freight\/[0-9a-f-]{36}\/[0-9a-f-]{36}\.(jpg|png|webp)$/)
