@@ -5,6 +5,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '../generated/prisma/client.js';
 import { Role } from '../generated/prisma/enums.js';
 import type { AuthUser } from '../common/decorators/current-user.decorator.js';
 import { DomainEvents } from '../events/domain-events.service.js';
@@ -13,10 +14,18 @@ import { DriverApprovalService } from '../drivers/driver-approval.service.js';
 import { DriverDocumentsService } from '../drivers/driver-documents.service.js';
 import { DriverRequirementsService } from '../drivers/driver-requirements.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { ListDriversDto, ListUsersDto } from './dto/admin.dto.js';
+import { StorageService } from '../storage/storage.service.js';
+import {
+  ListDriversDto,
+  ListUsersDto,
+  ListVehiclesDto,
+  ReviewIssueDto,
+} from './dto/admin.dto.js';
 
 const driverInclude = {
-  user: { select: { id: true, phone: true, name: true, email: true } },
+  user: {
+    select: { id: true, phone: true, name: true, email: true, avatarKey: true },
+  },
   vehicles: true,
   documents: { orderBy: { createdAt: 'asc' } },
 } as const;
@@ -30,6 +39,7 @@ export class AdminService {
     private readonly driverApproval: DriverApprovalService,
     private readonly audit: AuditService,
     private readonly events: DomainEvents,
+    private readonly storage: StorageService,
   ) {}
 
   async listUsers({ page, limit, search }: ListUsersDto) {
@@ -54,13 +64,19 @@ export class AdminService {
     return { items, total, page, limit };
   }
 
-  async listDrivers({ page, limit, status }: ListDriversDto) {
-    const where = status ? { status } : {};
+  async listDrivers({ page, limit, status, awaitingReview }: ListDriversDto) {
+    const where = awaitingReview
+      ? { status: 'pending' as const, submittedAt: { not: null } }
+      : status
+        ? { status }
+        : {};
     const [items, total] = await Promise.all([
       this.prisma.driverProfile.findMany({
         where,
         include: driverInclude,
-        orderBy: { createdAt: 'desc' },
+        orderBy: awaitingReview
+          ? { submittedAt: 'asc' as const }
+          : { createdAt: 'desc' as const },
         skip: (page - 1) * limit,
         take: limit,
       }),
@@ -72,9 +88,20 @@ export class AdminService {
   // Detail view: includes signed, short-lived links to the uploaded papers.
   async getDriver(id: string) {
     const profile = await this.findDriver(id);
+    const { avatarKey, ...user } = profile.user;
     return {
       ...profile,
+      user: {
+        ...user,
+        avatarUrl: avatarKey
+          ? await this.storage.createSignedUrl(avatarKey, 10 * 60)
+          : null,
+      },
       documents: await this.documents.withUrls(profile.documents),
+      missingDocuments: this.requirements.missing(
+        profile.vehicles.filter((v) => v.status !== 'approved'),
+        profile.documents,
+      ),
     };
   }
 
@@ -97,7 +124,14 @@ export class AdminService {
     return this.findDriver(id);
   }
 
-  async rejectDriver(id: string, adminId: string, reason: string) {
+  // `issues` say exactly what to fix; the app shows only those and keeps
+  // everything else filled in, and the driver submits again once fixed.
+  async rejectDriver(
+    id: string,
+    adminId: string,
+    reason: string,
+    issues: ReviewIssueDto[],
+  ) {
     const profile = await this.findDriver(id);
     if (profile.status === 'rejected') {
       throw new ConflictException('Driver is already rejected');
@@ -108,6 +142,14 @@ export class AdminService {
         data: {
           status: 'rejected',
           rejectionReason: reason,
+          submittedAt: null,
+          reviewIssues: issues.length
+            ? (issues.map((i) => ({
+                field: i.field,
+                message: i.message,
+                ...(i.vehicleId && { vehicleId: i.vehicleId }),
+              })) as Prisma.InputJsonValue)
+            : Prisma.DbNull,
           reviewedById: adminId,
           reviewedAt: new Date(),
         },
@@ -123,6 +165,7 @@ export class AdminService {
     ]);
     await this.audit.log(adminId, 'driver.reject', 'driver_profile', id, {
       reason,
+      issues: issues.map((i) => i.field),
     });
     return this.findDriver(id);
   }

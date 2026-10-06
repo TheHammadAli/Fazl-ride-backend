@@ -17,7 +17,13 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../common/guards/roles.guard.js';
 import { Role } from '../generated/prisma/enums.js';
 import { AdminService } from './admin.service.js';
-import { ListDriversDto, ListUsersDto, RejectDto } from './dto/admin.dto.js';
+import {
+  ListDriversDto,
+  ListUsersDto,
+  ListVehiclesDto,
+  RejectDriverDto,
+  RejectDto,
+} from './dto/admin.dto.js';
 
 // REST endpoints for FAZL's existing admin panel (no new admin UI is built).
 @ApiTags('admin')
@@ -57,9 +63,9 @@ export class AdminController {
   rejectDriver(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthUser,
-    @Body() dto: RejectDto,
+    @Body() dto: RejectDriverDto,
   ) {
-    return this.admin.rejectDriver(id, user.id, dto.reason);
+    return this.admin.rejectDriver(id, user.id, dto.reason, dto.issues ?? []);
   }
 
   @Post('drivers/:id/suspend')
