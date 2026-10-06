@@ -161,6 +161,12 @@ model DriverProfile {
   licenseExpiry    DateTime?    @db.Date
   dateOfBirth      DateTime?    @db.Date
   emergencyContact String?
+  // Set when the driver presses "Submit for review" (or an approved driver's
+  // identity changed); null while still a draft and again after a rejection.
+  submittedAt      DateTime?
+  // What the admin flagged on a rejection, as [{field, message, vehicleId?}];
+  // an entry is removed as soon as the driver fixes that field or document.
+  reviewIssues     Json?
   status           DriverStatus @default(pending)
   rejectionReason  String?
   suspensionReason String?
@@ -657,4 +663,20 @@ model TrackingToken {
 
   @@index([orderId])
   @@map("tracking_tokens")
+}
+
+// Things an admin should look at, e.g. a driver application waiting for
+// review. Shown in the admin panel's notification bell.
+model AdminNotification {
+  id         String    @id @default(uuid()) @db.Uuid
+  type       String
+  title      String
+  body       String
+  targetType String?
+  targetId   String?
+  readAt     DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([createdAt])
+  @@map("admin_notifications")
 }
