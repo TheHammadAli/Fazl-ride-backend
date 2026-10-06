@@ -9,6 +9,7 @@ import {
   isLicenseNumber,
   normalizePlate,
   parseRequiredDocuments,
+  withoutFixed,
 } from './driver-requirements.js';
 
 describe('parseRequiredDocuments', () => {
@@ -178,5 +179,35 @@ describe('format checks', () => {
     expect(isLicenseNumber('abc')).toBe(false);
     expect(isLicenseNumber('ABCDE12')).toBe(false);
     expect(isLicenseNumber('12 34 56')).toBe(false);
+  });
+});
+
+describe('withoutFixed', () => {
+  const issues = [
+    { field: 'cnic_front' as const, message: 'Blurry photo' },
+    {
+      field: 'vehicle_photo' as const,
+      message: 'Plate not visible',
+      vehicleId: 'v1',
+    },
+    {
+      field: 'vehicle_photo' as const,
+      message: 'Plate not visible',
+      vehicleId: 'v2',
+    },
+    { field: 'licenseExpiry' as const, message: 'Does not match the licence' },
+  ];
+
+  it('drops only what was fixed, per vehicle', () => {
+    expect(
+      withoutFixed(issues, [
+        { field: 'cnic_front' },
+        { field: 'vehicle_photo', vehicleId: 'v2' },
+      ]).map((i) => `${i.field}${i.vehicleId ?? ''}`),
+    ).toEqual(['vehicle_photov1', 'licenseExpiry']);
+  });
+
+  it('keeps everything when nothing flagged was touched', () => {
+    expect(withoutFixed(issues, [{ field: 'name' }])).toHaveLength(4);
   });
 });

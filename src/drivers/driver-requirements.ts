@@ -68,6 +68,46 @@ export function findMissingDocuments(
 
 export const MIN_DRIVER_AGE = 18;
 
+// What an admin can flag when rejecting: a profile field or one document.
+export const REVIEW_ISSUE_FIELDS = [
+  'name',
+  'avatar',
+  'dateOfBirth',
+  'cnic',
+  'licenseNumber',
+  'licenseExpiry',
+  'emergencyContact',
+  'vehicle',
+  ...Object.values(DocumentType),
+] as const;
+export type ReviewIssueField = (typeof REVIEW_ISSUE_FIELDS)[number];
+
+export interface ReviewIssue {
+  field: ReviewIssueField;
+  message: string;
+  // For `vehicle` and the per-vehicle documents.
+  vehicleId?: string;
+}
+
+export function reviewIssuesOf(value: unknown): ReviewIssue[] {
+  return Array.isArray(value) ? (value as ReviewIssue[]) : [];
+}
+
+// Drops the issues the driver has just fixed.
+export function withoutFixed(
+  issues: ReviewIssue[],
+  fixed: { field: ReviewIssueField; vehicleId?: string }[],
+) {
+  return issues.filter(
+    (issue) =>
+      !fixed.some(
+        (f) =>
+          f.field === issue.field &&
+          (!issue.vehicleId || !f.vehicleId || f.vehicleId === issue.vehicleId),
+      ),
+  );
+}
+
 // Shape checks only: they stop typos and junk ("abc", "123"). Whether the
 // values are real is decided by the admin against the uploaded CNIC,
 // licence and registration photos.
