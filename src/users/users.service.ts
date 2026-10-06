@@ -44,6 +44,7 @@ export class UsersService {
             dateOfBirth: true,
             licenseExpiry: true,
             emergencyContact: true,
+            submittedAt: true,
           },
         },
       },
@@ -62,6 +63,7 @@ export class UsersService {
             status: user.driverProfile.status,
             rejectionReason: user.driverProfile.rejectionReason,
             missingProfile: findMissingProfile(user, user.driverProfile),
+            submittedAt: user.driverProfile.submittedAt,
           }
         : null,
     };
@@ -84,6 +86,7 @@ export class UsersService {
       throw error;
     }
     if (nameChanged) {
+      await this.driverIdentity.resolveIssues(userId, [{ field: 'name' }]);
       await this.driverIdentity.sendForReview(userId, ['name']);
       await this.driverIdentity.recheckPending(userId);
     }
@@ -119,6 +122,7 @@ export class UsersService {
       throw error;
     }
     if (previous) await this.removeQuietly([previous]);
+    await this.driverIdentity.resolveIssues(userId, [{ field: 'avatar' }]);
     await this.driverIdentity.sendForReview(userId, ['avatar']);
     await this.driverIdentity.recheckPending(userId);
     return this.getMe(userId);

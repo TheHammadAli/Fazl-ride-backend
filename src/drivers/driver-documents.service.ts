@@ -126,6 +126,9 @@ export class DriverDocumentsService {
       throw error;
     }
     await this.removeQuietly(replaced.map((d) => d.storageKey));
+    await this.identity.resolveIssues(userId, [
+      { field: dto.type, vehicleId: dto.vehicleId },
+    ]);
     if (replacing) {
       await this.identity.sendForReview(userId, [`document:${dto.type}`]);
     } else {

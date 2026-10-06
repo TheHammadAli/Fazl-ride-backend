@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -24,6 +25,7 @@ import { UploadDocumentDto } from './dto/document.dto.js';
 import {
   ApplyDriverDto,
   UpdateDriverProfileDto,
+  UpdateVehicleDto,
   VehicleDto,
 } from './dto/driver.dto.js';
 import { DriversService } from './drivers.service.js';
@@ -50,6 +52,22 @@ export class DriversController {
 
   // Date of birth, licence expiry, emergency contact. Changing an already-set
   // date of birth or licence expiry sends an approved driver back for review.
+  // Sends a complete application to the admin for review.
+  @Post('me/submit')
+  @HttpCode(200)
+  submit(@CurrentUser() user: AuthUser) {
+    return this.drivers.submit(user.id);
+  }
+
+  @Patch('me/vehicles/:id')
+  updateVehicle(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateVehicleDto,
+  ) {
+    return this.drivers.updateVehicle(user.id, id, dto);
+  }
+
   @Patch('me')
   updateMine(
     @CurrentUser() user: AuthUser,

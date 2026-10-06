@@ -6,6 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Prisma } from '../generated/prisma/client.js';
 import { Role } from '../generated/prisma/enums.js';
 import { AuditService } from '../audit/audit.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -44,6 +45,12 @@ export class DriverApprovalService {
     if (profile.status === 'approved') {
       throw new ConflictException('Driver is already approved');
     }
+    // Only what the driver chose to send is reviewed, not a half-filled draft.
+    if (!profile.submittedAt) {
+      throw new BadRequestException(
+        'The driver has not submitted the application for review yet',
+      );
+    }
     const pendingVehicles = profile.vehicles.filter(
       (v) => v.status === 'pending',
     );
@@ -70,6 +77,7 @@ export class DriverApprovalService {
         data: {
           status: 'approved',
           rejectionReason: null,
+          reviewIssues: Prisma.DbNull,
           reviewedById: actorId,
           reviewedAt: new Date(),
         },
@@ -115,8 +123,9 @@ export class DriverApprovalService {
 
   private enabled(): boolean {
     return (
-      String(this.config.get('DEV_AUTO_APPROVE_DRIVERS') ?? '').toLowerCase() ===
-      'true'
+      String(
+        this.config.get('DEV_AUTO_APPROVE_DRIVERS') ?? '',
+      ).toLowerCase() === 'true'
     );
   }
 }

@@ -1,3 +1,4 @@
+import { PartialType } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
   IsDefined,
@@ -134,4 +135,21 @@ export class UpdateDriverProfileDto {
   @IsOptional()
   @IsPkPhone()
   emergencyContact?: string;
+
+  // Correctable until approved.
+  @IsOptional()
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.replace(/-/g, '') : value,
+  )
+  @Matches(/^[1-7]\d{12}$/, { message: 'cnic must be a valid 13-digit CNIC' })
+  cnic?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  @Validate(LicenseNumberRule)
+  licenseNumber?: string;
 }
+
+// Correcting a vehicle before it is approved; only the fields given change.
+export class UpdateVehicleDto extends PartialType(VehicleDto) {}

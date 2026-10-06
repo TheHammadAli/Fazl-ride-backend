@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module.js';
 import { AuditModule } from '../audit/audit.module.js';
+import { AdminNotificationsModule } from '../admin-notifications/admin-notifications.module.js';
 import { PresenceModule } from '../presence/presence.module.js';
 import { VehicleCategoriesModule } from '../vehicle-categories/vehicle-categories.module.js';
 import { DriverApprovalService } from './driver-approval.service.js';
@@ -11,7 +12,13 @@ import { DriversController } from './drivers.controller.js';
 import { DriversService } from './drivers.service.js';
 
 @Module({
-  imports: [AuthModule, AuditModule, VehicleCategoriesModule, PresenceModule],
+  imports: [
+    AuthModule,
+    AuditModule,
+    VehicleCategoriesModule,
+    PresenceModule,
+    AdminNotificationsModule,
+  ],
   controllers: [DriversController],
   providers: [
     DriversService,

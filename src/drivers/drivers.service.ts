@@ -5,6 +5,8 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '../generated/prisma/client.js';
+import { DomainEvents } from '../events/domain-events.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { VehicleCategoriesService } from '../vehicle-categories/vehicle-categories.service.js';
 import { DriverDocumentsService } from './driver-documents.service.js';
@@ -14,12 +16,16 @@ import {
   MIN_DRIVER_AGE,
   ageOn,
   findMissingProfile,
+  ReviewIssueField,
   isExpired,
   isFullName,
+  reviewIssuesOf,
 } from './driver-requirements.js';
+import { DriverApprovalService } from './driver-approval.service.js';
 import {
   ApplyDriverDto,
   UpdateDriverProfileDto,
+  UpdateVehicleDto,
   VehicleDto,
 } from './dto/driver.dto.js';
 
@@ -31,6 +37,8 @@ export class DriversService {
     private readonly requirements: DriverRequirementsService,
     private readonly vehicleCategories: VehicleCategoriesService,
     private readonly identity: DriverIdentityService,
+    private readonly approval: DriverApprovalService,
+    private readonly events: DomainEvents,
   ) {}
 
   // "Become a Driver": creates a pending profile plus the first vehicle.
@@ -83,6 +91,9 @@ export class DriversService {
           rejectionReason: null,
           reviewedById: null,
           reviewedAt: null,
+          // A draft until the driver presses "Submit for review".
+          submittedAt: null,
+          reviewIssues: Prisma.DbNull,
         };
         const profile = existing
           ? await tx.driverProfile.update({ where: { userId }, data })
@@ -156,18 +167,151 @@ export class DriversService {
         ? ['licenseExpiry']
         : []),
     ];
+    // CNIC and licence number are fixed once approved (only support may
+    // change them); before that the driver can correct them.
+    if ((dto.cnic || dto.licenseNumber) && profile.status === 'approved') {
+      throw new ConflictException(
+        'Contact support to change your CNIC or licence number',
+      );
+    }
     if (changed.length) await this.identity.beforeChange(userId);
 
-    await this.prisma.driverProfile.update({
-      where: { userId },
-      data: {
-        dateOfBirth: dates.dateOfBirth,
-        licenseExpiry: dates.licenseExpiry,
-        emergencyContact: dto.emergencyContact,
-      },
-    });
+    try {
+      await this.prisma.driverProfile.update({
+        where: { userId },
+        data: {
+          dateOfBirth: dates.dateOfBirth,
+          licenseExpiry: dates.licenseExpiry,
+          emergencyContact: dto.emergencyContact,
+          cnic: dto.cnic,
+          licenseNumber: dto.licenseNumber,
+        },
+      });
+    } catch (error: any) {
+      throw this.uniqueConflict(error) ?? error;
+    }
+    const fields = [
+      'dateOfBirth',
+      'licenseExpiry',
+      'emergencyContact',
+      'cnic',
+      'licenseNumber',
+    ] as const satisfies readonly (ReviewIssueField &
+      keyof UpdateDriverProfileDto)[];
+    await this.identity.resolveIssues(
+      userId,
+      fields.filter((f) => dto[f] !== undefined).map((field) => ({ field })),
+    );
     if (changed.length) await this.identity.sendForReview(userId, changed);
     else await this.identity.recheckPending(userId);
+    return this.getMine(userId);
+  }
+
+  // "Submit for review": only a complete application goes to the admin, who
+  // is notified. After a rejection every flagged item must be fixed first.
+  async submit(userId: string) {
+    const profile = await this.prisma.driverProfile.findUnique({
+      where: { userId },
+      include: {
+        vehicles: true,
+        documents: { select: { type: true, vehicleId: true } },
+        user: { select: { name: true, avatarKey: true } },
+      },
+    });
+    if (!profile) throw new NotFoundException('No driver application found');
+    if (profile.status === 'approved') {
+      throw new ConflictException('You are already an approved driver');
+    }
+    if (profile.status === 'suspended') {
+      throw new ForbiddenException('Your driver account is suspended');
+    }
+    if (profile.status === 'pending' && profile.submittedAt) {
+      throw new ConflictException('Your application is already under review');
+    }
+    const forReview = profile.vehicles.filter((v) => v.status !== 'approved');
+    const missingDocuments = this.requirements.missing(
+      forReview,
+      profile.documents,
+    );
+    const missingProfile = findMissingProfile(profile.user, profile);
+    const unresolvedIssues = reviewIssuesOf(profile.reviewIssues);
+    if (
+      missingDocuments.length ||
+      missingProfile.length ||
+      unresolvedIssues.length
+    ) {
+      throw new BadRequestException({
+        message: unresolvedIssues.length
+          ? 'Fix everything the reviewer pointed out before submitting again'
+          : 'Your application is not complete yet',
+        missingDocuments,
+        missingProfile,
+        unresolvedIssues,
+      });
+    }
+    const resubmitted = profile.status === 'rejected';
+    await this.prisma.$transaction([
+      this.prisma.driverProfile.update({
+        where: { id: profile.id },
+        data: {
+          status: 'pending',
+          submittedAt: new Date(),
+          rejectionReason: null,
+          reviewedById: null,
+          reviewedAt: null,
+        },
+      }),
+      this.prisma.vehicle.updateMany({
+        where: { driverProfileId: profile.id, status: 'rejected' },
+        data: { status: 'pending' },
+      }),
+    ]);
+    this.events.emit('driver.application_submitted', {
+      userId,
+      profileId: profile.id,
+      resubmitted,
+    });
+    await this.identity.notifyAdmin(
+      userId,
+      profile.id,
+      'driver.application_submitted',
+      resubmitted
+        ? 'Driver application re-submitted'
+        : 'New driver application',
+      resubmitted
+        ? 'fixed the flagged items and re-submitted for review.'
+        : 'submitted a driver application for review.',
+    );
+    await this.approval.maybeAutoApprove(profile.id);
+    return this.getMine(userId);
+  }
+
+  // Correcting a vehicle that is not approved yet (a draft, or flagged on a
+  // rejection). Approved vehicles are fixed.
+  async updateVehicle(
+    userId: string,
+    vehicleId: string,
+    dto: UpdateVehicleDto,
+  ) {
+    if (dto.category) await this.vehicleCategories.assertActive(dto.category);
+    const profile = await this.prisma.driverProfile.findUnique({
+      where: { userId },
+      include: { vehicles: { select: { id: true, status: true } } },
+    });
+    if (!profile) throw new NotFoundException('No driver application found');
+    const vehicle = profile.vehicles.find((v) => v.id === vehicleId);
+    if (!vehicle) throw new NotFoundException('Vehicle not found');
+    if (vehicle.status === 'approved') {
+      throw new ConflictException('An approved vehicle cannot be changed');
+    }
+    try {
+      await this.prisma.vehicle.update({ where: { id: vehicleId }, data: dto });
+    } catch (error: any) {
+      throw this.uniqueConflict(error) ?? error;
+    }
+    await this.identity.resolveIssues(userId, [
+      { field: 'vehicle', vehicleId },
+    ]);
     return this.getMine(userId);
   }
 
