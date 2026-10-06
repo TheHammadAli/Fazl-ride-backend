@@ -106,6 +106,11 @@ export class AdminController {
     return this.admin.unblockUser(id, user.id);
   }
 
+  @Get('vehicles')
+  listVehicles(@Query() query: ListVehiclesDto) {
+    return this.admin.listVehicles(query);
+  }
+
   @Post('vehicles/:id/approve')
   @HttpCode(200)
   approveVehicle(

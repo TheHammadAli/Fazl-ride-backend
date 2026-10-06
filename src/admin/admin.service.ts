@@ -257,6 +257,96 @@ export class AdminService {
     return { id, status: 'active' as const };
   }
 
+  // Every registered vehicle, filterable by ride/freight, type, status and a
+  // search over plate, make/model and the driver. `counts` is per status for
+  // the same filters (minus status), for the tabs.
+  async listVehicles({
+    page,
+    limit,
+    service,
+    category,
+    status,
+    search,
+  }: ListVehiclesDto) {
+    const q = search?.trim();
+    const base: Prisma.VehicleWhereInput = {
+      ...(category ? { category } : {}),
+      ...(service ? { categoryRef: { service } } : {}),
+      ...(q
+        ? {
+            OR: [
+              { plateNumber: { contains: q, mode: 'insensitive' } },
+              { make: { contains: q, mode: 'insensitive' } },
+              { model: { contains: q, mode: 'insensitive' } },
+              {
+                driverProfile: {
+                  user: {
+                    OR: [
+                      { name: { contains: q, mode: 'insensitive' } },
+                      { phone: { contains: q } },
+                    ],
+                  },
+                },
+              },
+            ],
+          }
+        : {}),
+    };
+    const where = status ? { ...base, status } : base;
+    const [rows, total, grouped] = await Promise.all([
+      this.prisma.vehicle.findMany({
+        where,
+        include: {
+          categoryRef: {
+            select: { label: true, service: true, iconKey: true },
+          },
+          driverProfile: {
+            select: {
+              id: true,
+              status: true,
+              user: { select: { id: true, name: true, phone: true } },
+            },
+          },
+          documents: {
+            where: { type: 'vehicle_photo' },
+            select: { storageKey: true },
+            take: 1,
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.vehicle.count({ where }),
+      this.prisma.vehicle.groupBy({
+        by: ['status'],
+        where: base,
+        _count: { _all: true },
+      }),
+    ]);
+    const items = await Promise.all(
+      rows.map(async ({ documents, categoryRef, driverProfile, ...v }) => ({
+        ...v,
+        categoryLabel: categoryRef.label,
+        service: categoryRef.service,
+        iconKey: categoryRef.iconKey,
+        driver: {
+          profileId: driverProfile.id,
+          status: driverProfile.status,
+          userId: driverProfile.user.id,
+          name: driverProfile.user.name,
+          phone: driverProfile.user.phone,
+        },
+        photoUrl: documents[0]
+          ? await this.storage.createSignedUrl(documents[0].storageKey, 10 * 60)
+          : null,
+      })),
+    );
+    const counts = { pending: 0, approved: 0, rejected: 0 };
+    for (const g of grouped) counts[g.status] = g._count._all;
+    return { items, total, page, limit, counts };
+  }
+
   async setVehicleStatus(
     id: string,
     status: 'approved' | 'rejected',
