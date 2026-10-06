@@ -9,4 +9,11 @@ export const KNOWN_VEHICLE_ICON_KEYS = [
   'van',
   'truck',
   'suv',
+  // Freight
+  'loader_rickshaw',
+  'pickup',
+  'mini_truck',
+  'dumper',
 ] as const;
+
+export const VEHICLE_SERVICES = ['ride', 'freight'] as const;

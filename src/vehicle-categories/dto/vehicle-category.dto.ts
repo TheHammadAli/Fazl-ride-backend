@@ -14,7 +14,7 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
-import { KNOWN_VEHICLE_ICON_KEYS } from '../vehicle-icons.js';
+import { KNOWN_VEHICLE_ICON_KEYS, VEHICLE_SERVICES } from '../vehicle-icons.js';
 
 // The starting fare rules a brand-new category needs (see fare_configs);
 // the same numbers/limits as UpdateFareConfigDto.
@@ -64,6 +64,11 @@ export class CreateVehicleCategoryDto {
   @IsIn(KNOWN_VEHICLE_ICON_KEYS)
   iconKey: string;
 
+  // 'ride' (passengers) or 'freight' (goods). Defaults to ride.
+  @IsOptional()
+  @IsIn(VEHICLE_SERVICES)
+  service?: string;
+
   @IsOptional()
   @Type(() => Number)
   @IsInt()
@@ -92,6 +97,11 @@ export class UpdateVehicleCategoryDto {
   @IsOptional()
   @IsBoolean()
   active?: boolean;
+
+  // Move a type between passenger rides and freight (goods).
+  @IsOptional()
+  @IsIn(VEHICLE_SERVICES)
+  service?: string;
 
   @IsOptional()
   @Type(() => Number)

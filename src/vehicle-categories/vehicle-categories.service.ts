@@ -1,4 +1,8 @@
-import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+} from '@nestjs/common';
 import { AuditService } from '../audit/audit.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { VehicleCategory } from '../generated/prisma/client.js';
@@ -49,11 +53,18 @@ export class VehicleCategoriesService {
     });
   }
 
+  // The active category with this key, or null.
+  async findActive(key: string): Promise<VehicleCategory | null> {
+    return (await this.listActive()).find((c) => c.key === key) ?? null;
+  }
+
   // Throws if `key` is not a category a passenger/driver can use right now.
   async assertActive(key: string): Promise<void> {
     const active = await this.listActive();
     if (!active.some((c) => c.key === key)) {
-      throw new BadRequestException(`Unknown or inactive vehicle category: ${key}`);
+      throw new BadRequestException(
+        `Unknown or inactive vehicle category: ${key}`,
+      );
     }
   }
 
@@ -62,7 +73,9 @@ export class VehicleCategoriesService {
       where: { key: dto.key },
     });
     if (existing) {
-      throw new ConflictException(`Vehicle category "${dto.key}" already exists`);
+      throw new ConflictException(
+        `Vehicle category "${dto.key}" already exists`,
+      );
     }
     const created = await this.prisma.$transaction(async (tx) => {
       const category = await tx.vehicleCategory.create({
@@ -70,6 +83,7 @@ export class VehicleCategoriesService {
           key: dto.key,
           label: dto.label,
           iconKey: dto.iconKey,
+          service: dto.service ?? 'ride',
           sortOrder: dto.sortOrder ?? 0,
         },
       });
@@ -96,7 +110,9 @@ export class VehicleCategoriesService {
   }
 
   async update(key: string, dto: UpdateVehicleCategoryDto, actorId: string) {
-    const existing = await this.prisma.vehicleCategory.findUnique({ where: { key } });
+    const existing = await this.prisma.vehicleCategory.findUnique({
+      where: { key },
+    });
     if (!existing) {
       throw new BadRequestException(`Unknown vehicle category: ${key}`);
     }
@@ -105,15 +121,22 @@ export class VehicleCategoriesService {
       data: dto,
     });
     this.invalidate();
-    await this.audit.log(actorId, 'vehicle_category.update', 'vehicle_category', key, {
-      before: {
-        label: existing.label,
-        iconKey: existing.iconKey,
-        active: existing.active,
-        sortOrder: existing.sortOrder,
+    await this.audit.log(
+      actorId,
+      'vehicle_category.update',
+      'vehicle_category',
+      key,
+      {
+        before: {
+          label: existing.label,
+          iconKey: existing.iconKey,
+          active: existing.active,
+          sortOrder: existing.sortOrder,
+          service: existing.service,
+        },
+        changes: JSON.parse(JSON.stringify(dto)),
       },
-      changes: JSON.parse(JSON.stringify(dto)),
-    });
+    );
     return updated;
   }
 }
