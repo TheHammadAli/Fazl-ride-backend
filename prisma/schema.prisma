@@ -361,8 +361,16 @@ model Ride {
   loadDescription String?
   loadWeightKg    Int?
   helpersNeeded   Int?
-  // Private storage key of the photo of the goods.
+  // Private storage key of the photo of the goods (optional).
   loadPhotoKey    String?
+  // Floor at each end (0 = ground) and whether there is a lift there, and
+  // whether the driver/helpers load at the pickup and unload at the drop-off.
+  pickupFloor     Int?
+  pickupHasLift   Boolean?
+  dropoffFloor    Int?
+  dropoffHasLift  Boolean?
+  needsLoading    Boolean?
+  needsUnloading  Boolean?
 
   pickupLat      Float
   pickupLng      Float
