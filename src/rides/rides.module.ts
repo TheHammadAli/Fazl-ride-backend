@@ -17,6 +17,9 @@ import { TripTrackerService } from './trip-tracker.service.js';
 import { RideSettings } from './rides.settings.js';
 import { RidesService } from './rides.service.js';
 
+import { FreightController } from './freight.controller.js';
+import { FreightService } from './freight.service.js';
+
 @Module({
   imports: [
     AuthModule,
@@ -31,6 +34,7 @@ import { RidesService } from './rides.service.js';
     DriverRidesController,
     AdminFaresController,
     AdminRidesController,
+    FreightController,
   ],
   providers: [
     FaresService,
@@ -41,6 +45,7 @@ import { RidesService } from './rides.service.js';
     AdminRidesService,
     RideActivityProvider,
     RideSettings,
+    FreightService,
   ],
   exports: [FaresService, RidesService, MatchingService],
 })
