@@ -24,6 +24,8 @@ export interface OfferableRide {
   // Bidding rides broadcast to everyone in range instead of a handful of the
   // nearest drivers; see RideSettings.negotiableOffersLimit.
   negotiable?: boolean;
+  // 'freight' asks drivers further away and gives them longer to answer.
+  service?: string;
 }
 
 @Injectable()
@@ -52,8 +54,6 @@ export class MatchingService
     if (this.timer) clearInterval(this.timer);
   }
 
-  // Offers the ride to the nearest available drivers of its category that have
-  // not been asked yet. Returns how many new offers were created.
   async offerRide(ride: OfferableRide): Promise<number> {
     const asked = await this.prisma.rideOffer.findMany({
       where: { rideId: ride.id },
@@ -72,14 +72,10 @@ export class MatchingService
       category: ride.category,
       limit: perRound + skip.size,
     });
-    const chosen = nearby
-      .filter((d) => !skip.has(d.userId))
-      .slice(0, perRound);
+    const chosen = nearby.filter((d) => !skip.has(d.userId)).slice(0, perRound);
     if (!chosen.length) return 0;
 
-    const expiresAt = new Date(
-      Date.now() + this.settings.offerTtlSeconds * 1000,
-    );
+    const expiresAt = new Date(Date.now() + this.offerTtlSeconds(ride) * 1000);
     const pickup = { lat: ride.pickupLat, lng: ride.pickupLng };
     const data = await Promise.all(
       chosen.map(async (d) => {
@@ -106,6 +102,12 @@ export class MatchingService
       });
     }
     return data.length;
+  }
+
+  offerTtlSeconds(ride: { service?: string }) {
+    return ride.service === 'freight'
+      ? this.settings.freightOfferTtlSeconds
+      : this.settings.offerTtlSeconds;
   }
 
   // Expires stale requests and offers, and widens the search for rides nobody took yet.
@@ -152,9 +154,14 @@ export class MatchingService
           // the same broadcast (at the same radius) so a driver who just came
           // online still gets a chance, rather than shrinking back down to
           // the fixed-price widening steps.
-          const radius = ride.negotiable
-            ? this.settings.negotiableRadiusMeters
-            : this.settings.radiiMeters[Math.min(ride.searchStep + 1, last)];
+          const radius =
+            ride.service === 'freight'
+              ? this.settings.freightRadiusMeters
+              : ride.negotiable
+                ? this.settings.negotiableRadiusMeters
+                : this.settings.radiiMeters[
+                    Math.min(ride.searchStep + 1, last)
+                  ];
           const step = ride.negotiable
             ? ride.searchStep
             : Math.min(ride.searchStep + 1, last);
@@ -165,7 +172,7 @@ export class MatchingService
               searchStep: step,
               searchRadiusMeters: radius,
               nextExpandAt: new Date(
-                now.getTime() + this.settings.offerTtlSeconds * 1000,
+                now.getTime() + this.offerTtlSeconds(ride) * 1000,
               ),
             },
           });

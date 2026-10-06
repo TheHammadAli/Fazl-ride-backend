@@ -36,12 +36,27 @@ export class RideSettings {
   // ride's fixed/estimated fare (raising it has no limit beyond the DTO's
   // plain Max(1_000_000)). 0.5 matches the app's own price-stepper floor.
   readonly negotiationMinFareFraction: number;
+  // Freight: how far away drivers are asked, how long the whole request
+  // stays open, and how long each driver has to answer (they read the load
+  // details and look at the photo first, so longer than a ride's 30 s).
+  readonly freightRadiusMeters: number;
+  readonly freightRequestTtlSeconds: number;
+  readonly freightOfferTtlSeconds: number;
 
   constructor(config: ConfigService) {
     this.requestTtlSeconds = Number(
       config.get('RIDE_REQUEST_TTL_SECONDS') ?? 120,
     );
     this.offerTtlSeconds = Number(config.get('OFFER_TTL_SECONDS') ?? 30);
+    this.freightRadiusMeters = Number(
+      config.get('FREIGHT_RADIUS_METERS') ?? 25_000,
+    );
+    this.freightRequestTtlSeconds = Number(
+      config.get('FREIGHT_REQUEST_TTL_SECONDS') ?? 600,
+    );
+    this.freightOfferTtlSeconds = Number(
+      config.get('FREIGHT_OFFER_TTL_SECONDS') ?? 120,
+    );
     this.offersPerRound = Number(config.get('OFFERS_PER_ROUND') ?? 5);
     this.radiiMeters = String(
       config.get('RIDE_SEARCH_RADII_METERS') ?? '3000,5000,8000',

@@ -11,6 +11,7 @@ import {
   MaxLength,
   Min,
   MinLength,
+  Matches,
   ValidateNested,
 } from 'class-validator';
 import { LatLngDto } from '../../common/dto/geo.dto.js';
@@ -55,6 +56,33 @@ export class RequestRideDto {
   @Min(1)
   @Max(1_000_000)
   offeredFare?: number;
+
+  // Freight only: what is being moved.
+  @IsOptional()
+  @IsString()
+  @MinLength(3)
+  @MaxLength(300)
+  loadDescription?: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100_000)
+  loadWeightKg?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(10)
+  helpersNeeded?: number;
+
+  // From POST freight/load-photo.
+  @IsOptional()
+  @IsString()
+  @Matches(/^freight\/[0-9a-f-]{36}\/[0-9a-f-]{36}\.(jpg|png|webp)$/)
+  loadPhotoKey?: string;
 
   // A negotiable ride only: accept the first bid at or below offeredFare
   // right away instead of waiting for the passenger to choose.

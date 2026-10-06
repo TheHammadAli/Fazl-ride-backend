@@ -46,6 +46,8 @@ export interface RideViewExtras {
   // A short-lived signed URL, resolved by the caller (RidesService has the
   // StorageService this presenter does not) - null while none is set.
   driverAvatarUrl?: string | null;
+  // Freight: signed URL of the photo of the goods.
+  loadPhotoUrl?: string | null;
 }
 
 // Phone numbers are shared only while a ride is on, and only with the two people on it
@@ -62,6 +64,17 @@ export function presentRide(
     status: ride.status,
     category: ride.category,
     tripType: ride.tripType,
+    service: ride.service,
+    // Freight: who it was sent to and what is being moved.
+    freight:
+      ride.service === 'freight'
+        ? {
+            loadDescription: ride.loadDescription,
+            loadWeightKg: ride.loadWeightKg,
+            helpersNeeded: ride.helpersNeeded,
+            loadPhotoUrl: extras.loadPhotoUrl ?? null,
+          }
+        : null,
     currency: 'PKR',
     paymentMethod: ride.paymentMethod,
     pickup: {

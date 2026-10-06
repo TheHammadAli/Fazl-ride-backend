@@ -75,7 +75,14 @@ export class RidesService {
   // in bidding mode, broadcasts it to everyone in range).
   async request(passengerId: string, dto: RequestRideDto) {
     await this.cancellations.assertNotBlocked(passengerId, 'passenger');
-    await this.vehicleCategories.assertActive(dto.category);
+    const category = await this.vehicleCategories.findActive(dto.category);
+    if (!category) {
+      throw new BadRequestException(
+        `Unknown or inactive vehicle category: ${dto.category}`,
+      );
+    }
+    const freight = category.service === 'freight';
+    if (freight) await this.assertFreightRequest(passengerId, dto);
     const tripType = dto.tripType ?? TripType.within_city;
     const quote = await this.fares.quote(
       dto.pickup,
@@ -83,7 +90,9 @@ export class RidesService {
       dto.category,
       tripType,
     );
-    const negotiable = this.settings.pricingMode === 'bidding';
+    // Freight is always priced by offers: the customer's price, drivers'
+    // counter-offers (inDrive Cargo style).
+    const negotiable = freight || this.settings.pricingMode === 'bidding';
     if (negotiable && dto.offeredFare != null) {
       this.assertAboveMinimumFare(dto.offeredFare, quote.fare);
     }
@@ -108,15 +117,33 @@ export class RidesService {
           offeredFare: negotiable ? (dto.offeredFare ?? quote.fare) : null,
           autoAccept: negotiable ? (dto.autoAccept ?? false) : false,
           rates: quote.rates,
-          searchRadiusMeters: negotiable
-            ? this.settings.negotiableRadiusMeters
-            : this.settings.radiiMeters[0],
+          searchRadiusMeters: freight
+            ? this.settings.freightRadiusMeters
+            : negotiable
+              ? this.settings.negotiableRadiusMeters
+              : this.settings.radiiMeters[0],
+          // Asked again (drivers who came online since) when offers lapse.
           nextExpandAt: new Date(
-            now.getTime() + this.settings.offerTtlSeconds * 1000,
+            now.getTime() +
+              this.matching.offerTtlSeconds({
+                service: freight ? 'freight' : 'ride',
+              }) *
+                1000,
           ),
           expiresAt: new Date(
-            now.getTime() + this.settings.requestTtlSeconds * 1000,
+            now.getTime() +
+              (freight
+                ? this.settings.freightRequestTtlSeconds
+                : this.settings.requestTtlSeconds) *
+                1000,
           ),
+          ...(freight && {
+            service: 'freight',
+            loadDescription: dto.loadDescription,
+            loadWeightKg: dto.loadWeightKg,
+            helpersNeeded: dto.helpersNeeded,
+            loadPhotoKey: dto.loadPhotoKey,
+          }),
         },
         include: rideInclude,
       });
@@ -141,6 +168,26 @@ export class RidesService {
       category: ride.category,
     });
     return { ...presentRide(ride), offersSent };
+  }
+
+  // A freight booking says what is being moved. It goes to every nearby
+  // driver of that vehicle type.
+  private async assertFreightRequest(passengerId: string, dto: RequestRideDto) {
+    const missing = [
+      ...(dto.loadDescription ? [] : ['loadDescription']),
+      ...(dto.loadWeightKg ? [] : ['loadWeightKg']),
+      ...(dto.helpersNeeded !== undefined ? [] : ['helpersNeeded']),
+      ...(dto.loadPhotoKey ? [] : ['loadPhotoKey']),
+    ];
+    if (missing.length) {
+      throw new BadRequestException({
+        message: 'Describe the load, with a photo',
+        missing,
+      });
+    }
+    if (!dto.loadPhotoKey!.startsWith(`freight/${passengerId}/`)) {
+      throw new BadRequestException('Upload the photo of the goods again');
+    }
   }
 
   async activeFor(userId: string, as: 'passenger' | 'driver') {
@@ -175,7 +222,7 @@ export class RidesService {
       include: { ride: { include: rideInclude } },
       orderBy: { offeredAt: 'desc' },
     });
-    return offers.map((offer) => this.presentOffer(offer));
+    return Promise.all(offers.map((offer) => this.presentOffer(offer)));
   }
 
   // One pending offer, in the same shape as the list, or null if it is gone.
@@ -190,7 +237,7 @@ export class RidesService {
       },
       include: { ride: { include: rideInclude } },
     });
-    return offer ? this.presentOffer(offer) : null;
+    return offer ? await this.presentOffer(offer) : null;
   }
 
   // Drivers who were asked about this ride (except one), so they can be told it is gone.
@@ -232,7 +279,7 @@ export class RidesService {
     return ride ? { rideId: ride.id, ...ride } : null;
   }
 
-  private presentOffer(offer: {
+  private async presentOffer(offer: {
     id: string;
     rideId: string;
     expiresAt: Date;
@@ -246,7 +293,9 @@ export class RidesService {
       expiresAt: offer.expiresAt,
       distanceToPickupMeters: offer.distanceToPickupMeters,
       etaSeconds: offer.etaSeconds,
-      ride: presentRide(offer.ride),
+      ride: presentRide(offer.ride, {
+        loadPhotoUrl: await this.avatarUrl(offer.ride.loadPhotoKey),
+      }),
     };
   }
 
@@ -981,8 +1030,9 @@ export class RidesService {
       ride.status === 'completed'
         ? await this.ratings.mine(ride.id, viewerId)
         : null;
+    const loadPhotoUrl = await this.avatarUrl(ride.loadPhotoKey);
     if (!ride.driverId || !DRIVER_ACTIVE.includes(ride.status)) {
-      return presentRide(ride, { myRating });
+      return presentRide(ride, { myRating, loadPhotoUrl });
     }
     const driverLocation = await this.locations.getLocation(ride.driverId);
     let driverEtaSeconds: number | null = null;
@@ -1001,6 +1051,7 @@ export class RidesService {
       driverDistanceToPickupMeters,
       driverAvatarUrl: await this.avatarUrl(ride.driver?.avatarKey ?? null),
       myRating,
+      loadPhotoUrl,
     });
   }
 
