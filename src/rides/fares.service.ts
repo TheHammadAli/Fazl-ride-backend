@@ -45,9 +45,9 @@ export class FaresService {
   }
 
   // Only categories a passenger can actually book right now, for one trip type.
-  private listActiveConfigs(tripType: TripType) {
+  private listActiveConfigs(tripType: TripType, service: string) {
     return this.prisma.fareConfig.findMany({
-      where: { tripType, categoryRef: { active: true } },
+      where: { tripType, categoryRef: { active: true, service } },
       orderBy: { baseFare: 'asc' },
     });
   }
@@ -126,11 +126,17 @@ export class FaresService {
   }
 
   // Price for every category for one route, so the app can show them side by side.
-  async estimate(pickup: LatLng, dropoff: LatLng, tripType: TripType) {
+  // `service` keeps trucks out of the passenger list and cars out of freight.
+  async estimate(
+    pickup: LatLng,
+    dropoff: LatLng,
+    tripType: TripType,
+    service = 'ride',
+  ) {
     this.assertReasonableTrip(pickup, dropoff, tripType);
     const [route, configs, nearby] = await Promise.all([
       this.routing.route(pickup, dropoff),
-      this.listActiveConfigs(tripType),
+      this.listActiveConfigs(tripType, service),
       this.locations.findNearby({
         ...pickup,
         radiusMeters: NEARBY_RADIUS_METERS,

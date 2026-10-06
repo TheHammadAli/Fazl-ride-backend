@@ -1,6 +1,8 @@
 import { Type } from 'class-transformer';
+import { VEHICLE_SERVICES } from '../../vehicle-categories/vehicle-icons.js';
 import {
   IsDefined,
+  IsIn,
   IsEnum,
   IsOptional,
   IsString,
@@ -35,4 +37,9 @@ export class EstimateRideDto {
   @IsOptional()
   @IsEnum(TripType)
   tripType?: TripType;
+
+  // 'ride' (default) or 'freight'.
+  @IsOptional()
+  @IsIn(VEHICLE_SERVICES)
+  service?: string;
 }

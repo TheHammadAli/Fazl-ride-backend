@@ -42,6 +42,7 @@ export class RidesController {
       dto.pickup,
       dto.dropoff,
       dto.tripType ?? TripType.within_city,
+      dto.service,
     );
   }
 
