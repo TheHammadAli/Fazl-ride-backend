@@ -15,12 +15,9 @@ import { RideSettings } from './rides.settings.js';
 import { TripType } from '../generated/prisma/enums.js';
 
 const MIN_TRIP_METERS = 50;
-// within_city keeps the original cap; city_to_city covers any route inside
-// Pakistan (Karachi-Peshawar is around 1,600 km).
-const MAX_TRIP_METERS: Record<TripType, number> = {
-  within_city: 200_000,
-  city_to_city: 2_000_000,
-};
+// city_to_city covers any route inside Pakistan (Karachi-Peshawar is around
+// 1,600 km); within_city is capped at RideSettings.withinCityMaxMeters.
+const CITY_TO_CITY_MAX_METERS = 2_000_000;
 // Drivers further than this from the pickup are not shown as "nearby".
 const NEARBY_RADIUS_METERS = 5_000;
 
@@ -85,10 +82,19 @@ export class FaresService {
         'Pickup and drop-off are too close together',
       );
     }
-    const max = MAX_TRIP_METERS[tripType];
-    if (straight > max) {
+    // Further than any one city reaches: the cheaper in-city rates do not
+    // apply, whatever the app sent.
+    if (
+      tripType === TripType.within_city &&
+      straight > this.settings.withinCityMaxMeters
+    ) {
       throw new BadRequestException(
-        `Trips longer than ${Math.round(max / 1000)} km are not supported`,
+        'This trip goes between cities. Book it as City to City.',
+      );
+    }
+    if (straight > CITY_TO_CITY_MAX_METERS) {
+      throw new BadRequestException(
+        `Trips longer than ${CITY_TO_CITY_MAX_METERS / 1000} km are not supported`,
       );
     }
   }

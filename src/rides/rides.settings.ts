@@ -42,6 +42,10 @@ export class RideSettings {
   readonly freightRadiusMeters: number;
   readonly freightRequestTtlSeconds: number;
   readonly freightOfferTtlSeconds: number;
+  // The furthest a within_city trip can go (straight line); further is
+  // between cities and must use city_to_city rates. Karachi is the widest
+  // city at roughly 70 km across.
+  readonly withinCityMaxMeters: number;
 
   constructor(config: ConfigService) {
     this.requestTtlSeconds = Number(
@@ -56,6 +60,9 @@ export class RideSettings {
     );
     this.freightOfferTtlSeconds = Number(
       config.get('FREIGHT_OFFER_TTL_SECONDS') ?? 120,
+    );
+    this.withinCityMaxMeters = Number(
+      config.get('WITHIN_CITY_MAX_METERS') ?? 75_000,
     );
     this.offersPerRound = Number(config.get('OFFERS_PER_ROUND') ?? 5);
     this.radiiMeters = String(
