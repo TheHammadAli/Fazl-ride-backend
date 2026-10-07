@@ -59,6 +59,11 @@ export function presentRide(
   ride: RideWithRelations,
   extras: RideViewExtras = {},
 ) {
+  // Phones are shared while the ride is on, and for a booking for later
+  // once its driver is confirmed, so the two can agree the pickup.
+  const contactOpen =
+    PHONE_VISIBLE.includes(ride.status) ||
+    (ride.status === 'scheduled' && ride.driverId != null);
   return {
     id: ride.id,
     status: ride.status,
@@ -121,14 +126,14 @@ export function presentRide(
     passenger: {
       id: ride.passenger.id,
       name: ride.passenger.name,
-      phone: PHONE_VISIBLE.includes(ride.status) ? ride.passenger.phone : null,
+      phone: contactOpen ? ride.passenger.phone : null,
       rating: ratingView(ride.passenger.ratingSum, ride.passenger.ratingCount),
     },
     driver: ride.driver
       ? {
           id: ride.driver.id,
           name: ride.driver.name,
-          phone: PHONE_VISIBLE.includes(ride.status) ? ride.driver.phone : null,
+          phone: contactOpen ? ride.driver.phone : null,
           avatarUrl: extras.driverAvatarUrl ?? null,
           rating: ratingView(ride.driver.ratingSum, ride.driver.ratingCount),
           vehicle: ride.vehicle,
@@ -145,6 +150,8 @@ export function presentRide(
         }
       : null,
     requestedAt: ride.requestedAt,
+    scheduledAt: ride.scheduledAt,
+    dispatchAt: ride.dispatchAt,
     expiresAt: ride.status === 'requested' ? ride.expiresAt : null,
     acceptedAt: ride.acceptedAt,
     arrivedAt: ride.arrivedAt,

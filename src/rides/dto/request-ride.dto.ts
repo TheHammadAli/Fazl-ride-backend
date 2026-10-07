@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  IsDateString,
   IsBoolean,
   IsDefined,
   IsEnum,
@@ -47,6 +48,12 @@ export class RequestRideDto {
   @IsOptional()
   @IsEnum(TripType)
   tripType?: TripType;
+
+  // Ride Later / scheduled freight: when it is wanted (ISO 8601). Left out,
+  // the ride is wanted now.
+  @IsOptional()
+  @IsDateString()
+  scheduledAt?: string;
 
   // A negotiable ride only: what the passenger offers to pay. Left out, the
   // suggested price from the fare table is used instead.

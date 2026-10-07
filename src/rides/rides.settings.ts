@@ -46,6 +46,24 @@ export class RideSettings {
   // between cities and must use city_to_city rates. Karachi is the widest
   // city at roughly 70 km across.
   readonly withinCityMaxMeters: number;
+  // Booking for later: how far ahead it can be (at least / at most), how
+  // many a customer can hold, how long before the time the search for a
+  // driver starts (rides / freight, which needs more notice), and how long
+  // after the time it keeps looking.
+  readonly scheduleMinAheadMinutes: number;
+  readonly scheduleMaxAheadDays: number;
+  readonly scheduledMaxPerPassenger: number;
+  readonly rideScheduleLeadMinutes: number;
+  readonly freightScheduleLeadMinutes: number;
+  readonly scheduledGraceMinutes: number;
+  // How far from where a driver last was the bookings for later they can
+  // take are listed.
+  readonly reservationRadiusMeters: number;
+  // A confirmed driver who is not online when the search would start is
+  // waited for until this long before the booked time (rides / freight);
+  // only then does the booking go to everyone nearby.
+  readonly rideReservedWaitUntilMinutes: number;
+  readonly freightReservedWaitUntilMinutes: number;
 
   constructor(config: ConfigService) {
     this.requestTtlSeconds = Number(
@@ -63,6 +81,33 @@ export class RideSettings {
     );
     this.withinCityMaxMeters = Number(
       config.get('WITHIN_CITY_MAX_METERS') ?? 75_000,
+    );
+    this.scheduleMinAheadMinutes = Number(
+      config.get('SCHEDULE_MIN_AHEAD_MINUTES') ?? 30,
+    );
+    this.scheduleMaxAheadDays = Number(
+      config.get('SCHEDULE_MAX_AHEAD_DAYS') ?? 7,
+    );
+    this.scheduledMaxPerPassenger = Number(
+      config.get('SCHEDULED_MAX_PER_PASSENGER') ?? 3,
+    );
+    this.rideScheduleLeadMinutes = Number(
+      config.get('RIDE_SCHEDULE_LEAD_MINUTES') ?? 15,
+    );
+    this.freightScheduleLeadMinutes = Number(
+      config.get('FREIGHT_SCHEDULE_LEAD_MINUTES') ?? 60,
+    );
+    this.scheduledGraceMinutes = Number(
+      config.get('SCHEDULED_GRACE_MINUTES') ?? 15,
+    );
+    this.reservationRadiusMeters = Number(
+      config.get('RESERVATION_RADIUS_METERS') ?? 30_000,
+    );
+    this.rideReservedWaitUntilMinutes = Number(
+      config.get('RIDE_RESERVED_WAIT_UNTIL_MINUTES') ?? 5,
+    );
+    this.freightReservedWaitUntilMinutes = Number(
+      config.get('FREIGHT_RESERVED_WAIT_UNTIL_MINUTES') ?? 20,
     );
     this.offersPerRound = Number(config.get('OFFERS_PER_ROUND') ?? 5);
     this.radiiMeters = String(

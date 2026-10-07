@@ -70,6 +70,15 @@ export class RealtimeEventsService implements OnModuleInit, OnModuleDestroy {
         await this.closeOffers(p.rideId, 'expired');
         return this.sendRideUpdate(p.rideId);
 
+      case 'ride.reservation_confirmed':
+      case 'ride.reservation_released':
+        // A booking for later got (or lost) its confirmed driver.
+        return this.sendRideUpdate(p.rideId);
+
+      case 'ride.dispatched':
+        // A booking for later started looking for a driver.
+        return this.sendRideUpdate(p.rideId);
+
       case 'ride.driver_cancelled':
         // The trip goes back to searching: the passenger sees it as a plain update.
         return this.sendRideUpdate(p.rideId, { skipUserId: p.driverId });

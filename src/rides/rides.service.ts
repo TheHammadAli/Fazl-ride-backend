@@ -25,6 +25,7 @@ import { RatingsService } from './ratings.service.js';
 import { RoutingProvider } from '../routing/routing.provider.js';
 import { StorageService } from '../storage/storage.service.js';
 import { WalletService } from '../wallet/wallet.service.js';
+import { ReservationsService } from './reservations.service.js';
 import { RideSettings } from './rides.settings.js';
 import { billedDistanceMeters, FareRatesSnapshot } from './trip-distance.js';
 import { VehicleCategoriesService } from '../vehicle-categories/vehicle-categories.service.js';
@@ -53,6 +54,7 @@ export class RidesService {
     private readonly vehicleCategories: VehicleCategoriesService,
     private readonly storage: StorageService,
     private readonly wallet: WalletService,
+    private readonly reservations: ReservationsService,
   ) {}
 
   // The lowest a negotiable price may go for a ride whose fixed/estimated
@@ -102,6 +104,9 @@ export class RidesService {
       this.assertAboveMinimumFare(dto.offeredFare, quote.fare);
     }
     const now = new Date();
+    const schedule = dto.scheduledAt
+      ? await this.planSchedule(passengerId, new Date(dto.scheduledAt), freight)
+      : null;
     let ride: RideWithRelations;
     try {
       ride = await this.prisma.ride.create({
@@ -136,13 +141,22 @@ export class RidesService {
               }) *
                 1000,
           ),
-          expiresAt: new Date(
-            now.getTime() +
-              (freight
-                ? this.settings.freightRequestTtlSeconds
-                : this.settings.requestTtlSeconds) *
-                1000,
-          ),
+          expiresAt:
+            schedule?.expiresAt ??
+            new Date(
+              now.getTime() +
+                (freight
+                  ? this.settings.freightRequestTtlSeconds
+                  : this.settings.requestTtlSeconds) *
+                  1000,
+            ),
+          ...(schedule && {
+            status: 'scheduled' as const,
+            scheduledAt: schedule.scheduledAt,
+            dispatchAt: schedule.dispatchAt,
+            // Not searched again until it is dispatched.
+            nextExpandAt: schedule.expiresAt,
+          }),
           ...(freight && {
             service: 'freight',
             loadDescription: dto.loadDescription,
@@ -173,6 +187,9 @@ export class RidesService {
       throw error;
     }
 
+    // Booked for later: nobody is asked until its dispatch time.
+    if (schedule) return { ...presentRide(ride), offersSent: 0 };
+
     const offersSent = await this.matching.offerRide(ride);
     this.events.emit('ride.requested', {
       rideId: ride.id,
@@ -180,6 +197,71 @@ export class RidesService {
       category: ride.category,
     });
     return { ...presentRide(ride), offersSent };
+  }
+
+  // A booking for later: at least SCHEDULE_MIN_AHEAD_MINUTES and at most
+  // SCHEDULE_MAX_AHEAD_DAYS ahead, a few per customer. The search starts a
+  // lead time before (longer for freight) and keeps going a little past it.
+  private async planSchedule(
+    passengerId: string,
+    scheduledAt: Date,
+    freight: boolean,
+  ) {
+    const s = this.settings;
+    const now = Date.now();
+    if (scheduledAt.getTime() < now + s.scheduleMinAheadMinutes * 60_000) {
+      throw new BadRequestException(
+        `Book at least ${s.scheduleMinAheadMinutes} minutes ahead`,
+      );
+    }
+    if (
+      scheduledAt.getTime() >
+      now + s.scheduleMaxAheadDays * 24 * 60 * 60_000
+    ) {
+      throw new BadRequestException(
+        `Book at most ${s.scheduleMaxAheadDays} days ahead`,
+      );
+    }
+    const held = await this.prisma.ride.count({
+      where: { passengerId, status: 'scheduled' },
+    });
+    if (held >= s.scheduledMaxPerPassenger) {
+      throw new ConflictException(
+        `You can have up to ${s.scheduledMaxPerPassenger} scheduled bookings`,
+      );
+    }
+    const lead = freight
+      ? s.freightScheduleLeadMinutes
+      : s.rideScheduleLeadMinutes;
+    return {
+      scheduledAt,
+      dispatchAt: new Date(
+        Math.max(now, scheduledAt.getTime() - lead * 60_000),
+      ),
+      expiresAt: new Date(
+        scheduledAt.getTime() + s.scheduledGraceMinutes * 60_000,
+      ),
+    };
+  }
+
+  // The customer's bookings for later, soonest first.
+  async scheduledFor(passengerId: string) {
+    const rides = await this.prisma.ride.findMany({
+      where: { passengerId, status: 'scheduled' },
+      include: {
+        ...rideInclude,
+        _count: { select: { offers: { where: { status: 'bid' } } } },
+      },
+      orderBy: { scheduledAt: 'asc' },
+    });
+    // Each with how many drivers have offered so far (before one is
+    // confirmed).
+    return {
+      items: rides.map((r) => ({
+        ...presentRide(r),
+        offersCount: r._count.offers,
+      })),
+    };
   }
 
   // A freight booking says what is being moved. It goes to every nearby
@@ -515,10 +597,16 @@ export class RidesService {
   async bidsFor(passengerId: string, rideId: string) {
     const ride = await this.prisma.ride.findFirst({
       where: { id: rideId, passengerId },
-      select: { status: true, offeredFare: true, negotiable: true },
+      select: {
+        status: true,
+        offeredFare: true,
+        negotiable: true,
+        category: true,
+      },
     });
     if (!ride) throw new NotFoundException('Ride not found');
-    if (!ride.negotiable) return { offers: [] };
+    // Bookings for later collect drivers' offers whatever the pricing mode.
+    if (!ride.negotiable && ride.status !== 'scheduled') return { offers: [] };
 
     const offers = await this.prisma.rideOffer.findMany({
       where: {
@@ -528,7 +616,15 @@ export class RidesService {
       },
       orderBy: { offeredAt: 'desc' },
     });
-    return { offers: await this.presentOffers(offers, ride.offeredFare) };
+    return {
+      offers: await this.presentOffers(
+        offers,
+        ride.offeredFare,
+        // Drivers offering ahead of time may be offline: show their vehicle
+        // of this type rather than the one they last went online with.
+        ride.status === 'scheduled' ? ride.category : undefined,
+      ),
+    };
   }
 
   // One driver's current offer on a negotiable ride, for the socket push the
@@ -562,6 +658,7 @@ export class RidesService {
       distanceToPickupMeters: number;
     }[],
     offeredFare: number | null,
+    category?: string,
   ) {
     if (!offers.length) return [];
     const driverIds = offers.map((o) => o.driverId);
@@ -581,6 +678,24 @@ export class RidesService {
         select: { userId: true, vehicleId: true },
       }),
     ]);
+    if (category) {
+      const own = await this.prisma.vehicle.findMany({
+        where: {
+          category,
+          status: 'approved',
+          driverProfile: { userId: { in: driverIds } },
+        },
+        select: { id: true, driverProfile: { select: { userId: true } } },
+      });
+      for (const v of own) {
+        const presence = presences.find(
+          (p) => p.userId === v.driverProfile.userId,
+        );
+        if (presence) presence.vehicleId = v.id;
+        else
+          presences.push({ userId: v.driverProfile.userId, vehicleId: v.id });
+      }
+    }
     const vehicleIds = presences.map((p) => p.vehicleId).filter((v) => v);
     const vehicles = vehicleIds.length
       ? await this.prisma.vehicle.findMany({
@@ -636,15 +751,16 @@ export class RidesService {
   async choose(passengerId: string, rideId: string, offerId: string) {
     const now = new Date();
     let driverId = '';
+    let reserved = false;
     await this.prisma.$transaction(async (tx) => {
       const ride = await this.lockRide(tx, rideId);
       if (ride.passengerId !== passengerId) {
         throw new NotFoundException('Ride not found');
       }
-      if (!ride.negotiable) {
+      if (!ride.negotiable && ride.status !== 'scheduled') {
         throw new ConflictException('This ride is not negotiable');
       }
-      if (ride.status !== 'requested') {
+      if (ride.status !== 'requested' && ride.status !== 'scheduled') {
         throw new ConflictException(
           'This ride is no longer waiting for a driver',
         );
@@ -666,6 +782,18 @@ export class RidesService {
       if (amount == null) {
         // Should not happen: a negotiable ride always has an offeredFare.
         throw new ConflictException('This offer has no price');
+      }
+      // A booking for later: the driver is confirmed now and gets the ride
+      // when it starts; they need not be online yet.
+      if (ride.status === 'scheduled') {
+        reserved = true;
+        await this.reservations.confirmInTx(
+          tx,
+          { id: rideId, category: ride.category },
+          offer,
+          amount,
+        );
+        return;
       }
 
       const presence = await tx.driverPresence.findUnique({
@@ -708,7 +836,11 @@ export class RidesService {
       }
     });
 
-    this.events.emit('ride.accepted', { rideId, driverId });
+    if (reserved) {
+      this.events.emit('ride.reservation_confirmed', { rideId, driverId });
+    } else {
+      this.events.emit('ride.accepted', { rideId, driverId });
+    }
     return this.get(passengerId, rideId);
   }
 
@@ -856,6 +988,9 @@ export class RidesService {
     if (!ride) throw new NotFoundException('Ride not found');
     if (ride.passengerId === userId)
       return this.cancelByPassenger(userId, rideId, dto);
+    // A driver giving up a booking for later: it opens again.
+    if (ride.status === 'scheduled')
+      return this.reservations.release(userId, rideId);
     return this.cancelByDriver(userId, rideId, dto);
   }
 
@@ -869,7 +1004,9 @@ export class RidesService {
     let from: RideStatus = 'requested';
     await this.prisma.$transaction(async (tx) => {
       const ride = await this.lockRide(tx, rideId);
-      if (!['requested', 'accepted', 'arrived'].includes(ride.status)) {
+      if (
+        !['scheduled', 'requested', 'accepted', 'arrived'].includes(ride.status)
+      ) {
         throw new ConflictException(
           ride.status === 'started'
             ? 'The ride has already started. Ask the driver to end it at your destination'
@@ -892,7 +1029,8 @@ export class RidesService {
         where: { rideId, status: 'pending' },
         data: { status: 'expired', respondedAt: now },
       });
-      if (driverId) {
+      // A booking for later is free to cancel, even with a confirmed driver.
+      if (driverId && from !== 'scheduled') {
         await this.cancellations.record(tx, {
           rideId,
           userId: passengerId,

@@ -20,6 +20,7 @@ import { RidesService } from './rides.service.js';
 
 import { FreightController } from './freight.controller.js';
 import { FreightService } from './freight.service.js';
+import { ReservationsService } from './reservations.service.js';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { FreightService } from './freight.service.js';
     RideActivityProvider,
     RideSettings,
     FreightService,
+    ReservationsService,
   ],
   exports: [FaresService, RidesService, MatchingService],
 })

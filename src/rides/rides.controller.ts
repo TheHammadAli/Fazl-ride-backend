@@ -21,6 +21,7 @@ import { BidDto, ChooseOfferDto, UpdateOfferDto } from './dto/bid.dto.js';
 import { RateRideDto } from './dto/rate-ride.dto.js';
 import { RatingsService } from './ratings.service.js';
 import { FaresService } from './fares.service.js';
+import { ReservationsService } from './reservations.service.js';
 import { RidesService } from './rides.service.js';
 
 @ApiTags('rides')
@@ -32,6 +33,7 @@ export class RidesController {
     private readonly fares: FaresService,
     private readonly rides: RidesService,
     private readonly ratings: RatingsService,
+    private readonly reservations: ReservationsService,
   ) {}
 
   // Read-only price quote, creates nothing.
@@ -55,6 +57,12 @@ export class RidesController {
   @Get('active')
   active(@CurrentUser() user: AuthUser) {
     return this.rides.activeFor(user.id, 'passenger');
+  }
+
+  // Bookings for later (Ride Later, scheduled freight), soonest first.
+  @Get('scheduled')
+  scheduled(@CurrentUser() user: AuthUser) {
+    return this.rides.scheduledFor(user.id);
   }
 
   @Get(':id')
@@ -134,6 +142,29 @@ export class RidesController {
     return this.rides.bid(user.id, id, dto.amount);
   }
 
+  // Customer: stop waiting for the confirmed driver of a booking for later.
+  @Post(':id/find-another-driver')
+  @HttpCode(200)
+  findAnotherDriver(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.reservations.findAnotherDriver(user.id, id);
+  }
+
+  // Driver: offer a price for a booking for later, ahead of time.
+  @Post(':id/reserve')
+  @HttpCode(200)
+  @UseGuards(RolesGuard)
+  @Roles(Role.driver)
+  reserve(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: BidDto,
+  ) {
+    return this.reservations.offer(user.id, id, dto.amount);
+  }
+
   @Post(':id/arrived')
   @HttpCode(200)
   @UseGuards(RolesGuard)
@@ -183,7 +214,10 @@ export class RidesController {
 @Roles(Role.driver)
 @Controller('drivers/me')
 export class DriverRidesController {
-  constructor(private readonly rides: RidesService) {}
+  constructor(
+    private readonly rides: RidesService,
+    private readonly reservations: ReservationsService,
+  ) {}
 
   @Get('offers')
   offers(@CurrentUser() user: AuthUser) {
@@ -193,5 +227,17 @@ export class DriverRidesController {
   @Get('active-ride')
   activeRide(@CurrentUser() user: AuthUser) {
     return this.rides.activeFor(user.id, 'driver');
+  }
+
+  // Bookings for later this driver could take, near where they last were.
+  @Get('upcoming-jobs')
+  upcomingJobs(@CurrentUser() user: AuthUser) {
+    return this.reservations.upcomingJobs(user.id);
+  }
+
+  // Bookings for later this driver is confirmed for.
+  @Get('reservations')
+  myReservations(@CurrentUser() user: AuthUser) {
+    return this.reservations.myReservations(user.id);
   }
 }

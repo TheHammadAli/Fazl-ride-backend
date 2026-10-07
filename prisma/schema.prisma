@@ -338,6 +338,9 @@ model DriverSession {
 }
 
 enum RideStatus {
+  // Booked for later (Ride Later / scheduled freight): no driver is asked
+  // until dispatchAt, when it becomes requested.
+  scheduled
   requested
   accepted
   arrived
@@ -382,6 +385,10 @@ model Ride {
   category        String
   tripType        TripType   @default(within_city)
   status          RideStatus @default(requested)
+  // Booked for later: when the customer wants it, and when the search for a
+  // driver starts (a lead time before it). Null for a ride wanted now.
+  scheduledAt     DateTime?
+  dispatchAt      DateTime?
   // 'ride' or 'freight'. A freight booking goes to every nearby driver of
   // its vehicle type, who accept or counter the offered fare.
   service         String     @default("ride")
@@ -478,6 +485,7 @@ model Ride {
   @@index([status, expiresAt])
   @@index([category])
   @@index([tripType])
+  @@index([dispatchAt])
   @@map("rides")
 }
 

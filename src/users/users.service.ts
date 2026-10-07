@@ -182,6 +182,17 @@ export class UsersService {
       this.prisma.refreshToken.deleteMany({ where: { userId } }),
       this.prisma.userRole.deleteMany({ where: { userId } }),
       this.prisma.otpCode.deleteMany({ where: { phone: user.phone } }),
+      // Bookings for later must not go looking for a driver afterwards.
+      this.prisma.ride.updateMany({
+        where: { passengerId: userId, status: 'scheduled' },
+        data: {
+          status: 'cancelled',
+          cancelledBy: 'passenger',
+          cancelledFromStatus: 'scheduled',
+          cancelReason: 'Account deleted',
+          cancelledAt: new Date(),
+        },
+      }),
       this.prisma.user.update({
         where: { id: userId },
         data: {
