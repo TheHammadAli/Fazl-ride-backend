@@ -99,17 +99,18 @@ model User {
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
 
-  roles            UserRole[]
-  refreshTokens    RefreshToken[]
-  driverProfile    DriverProfile?
-  ridesAsPassenger Ride[]             @relation("RidePassenger")
-  ridesAsDriver    Ride[]             @relation("RideDriver")
-  rideOffers       RideOffer[]
-  cancellations    RideCancellation[]
-  ratingsGiven     RideRating[]       @relation("RatingRater")
-  ratingsReceived  RideRating[]       @relation("RatingRatee")
-  earnings         DriverEarning[]
-  sentRideMessages RideMessage[]
+  roles             UserRole[]
+  refreshTokens     RefreshToken[]
+  driverProfile     DriverProfile?
+  ridesAsPassenger  Ride[]             @relation("RidePassenger")
+  ridesAsDriver     Ride[]             @relation("RideDriver")
+  rideOffers        RideOffer[]
+  cancellations     RideCancellation[]
+  ratingsGiven      RideRating[]       @relation("RatingRater")
+  ratingsReceived   RideRating[]       @relation("RatingRatee")
+  earnings          DriverEarning[]
+  sentRideMessages  RideMessage[]
+  driverDestination DriverDestination?
 
   @@map("users")
 }
@@ -302,6 +303,25 @@ model DriverPresence {
   @@map("driver_presence")
 }
 
+// A driver's destination mode ("Go Home" / Uber destination filter): while
+// active, only rides that take them towards this place are offered. A few
+// uses per business day (usesDay/usesCount), each lasting a few hours.
+model DriverDestination {
+  userId    String    @id @db.Uuid
+  lat       Float
+  lng       Float
+  address   String
+  active    Boolean   @default(false)
+  expiresAt DateTime?
+  usesDay   DateTime?
+  usesCount Int       @default(0)
+  updatedAt DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("driver_destinations")
+}
+
 // One row per stretch of being online, used for "Online Hours" on the dashboard.
 model DriverSession {
   id        String    @id @default(uuid()) @db.Uuid
@@ -348,16 +368,16 @@ enum CancelledBy {
 // A ride from request to completion. Coordinates are plain floats here: the
 // fast spatial search happens on driver_presence, not on rides.
 model Ride {
-  id          String     @id @default(uuid()) @db.Uuid
-  passengerId String     @db.Uuid
-  driverId    String?    @db.Uuid
-  vehicleId   String?    @db.Uuid
-  category    String
-  tripType    TripType   @default(within_city)
-  status      RideStatus @default(requested)
+  id              String     @id @default(uuid()) @db.Uuid
+  passengerId     String     @db.Uuid
+  driverId        String?    @db.Uuid
+  vehicleId       String?    @db.Uuid
+  category        String
+  tripType        TripType   @default(within_city)
+  status          RideStatus @default(requested)
   // 'ride' or 'freight'. A freight booking goes to every nearby driver of
   // its vehicle type, who accept or counter the offered fare.
-  service         String  @default("ride")
+  service         String     @default("ride")
   loadDescription String?
   loadWeightKg    Int?
   helpersNeeded   Int?
