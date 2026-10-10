@@ -92,6 +92,12 @@ export class RealtimeEventsService implements OnModuleInit, OnModuleDestroy {
           lastSeenAt: p.lastSeenAt,
         });
 
+      case 'driver.destination_reached':
+        // Destination mode switched itself off on arrival.
+        return this.gateway.emitToUser(p.userId, 'driver:destination_reached', {
+          address: p.address,
+        });
+
       case 'user.blocked':
         return this.gateway.disconnectUser(
           p.userId,
@@ -123,7 +129,8 @@ export class RealtimeEventsService implements OnModuleInit, OnModuleDestroy {
     const passengerId = parties?.[0];
     if (!passengerId) return;
     const bid = await this.rides.bidFor(rideId, driverId);
-    if (bid) this.gateway.emitToUser(passengerId, 'ride:bid', { rideId, ...bid });
+    if (bid)
+      this.gateway.emitToUser(passengerId, 'ride:bid', { rideId, ...bid });
   }
 
   // Tells the drivers who were asked but did not get the ride that the offer is gone.
