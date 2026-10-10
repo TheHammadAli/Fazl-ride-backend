@@ -5,6 +5,8 @@ import {
   OnModuleDestroy,
 } from '@nestjs/common';
 import { DomainEvents } from '../events/domain-events.service.js';
+import { DestinationService } from '../presence/destination.service.js';
+import { takesTowardsDestination } from '../presence/destination-rule.js';
 import { DriverLocationStore } from '../presence/driver-location.store.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { RoutingProvider } from '../routing/routing.provider.js';
@@ -19,6 +21,8 @@ export interface OfferableRide {
   passengerId: string;
   pickupLat: number;
   pickupLng: number;
+  dropoffLat: number;
+  dropoffLng: number;
   category: string;
   searchRadiusMeters: number;
   // Bidding rides broadcast to everyone in range instead of a handful of the
@@ -42,6 +46,7 @@ export class MatchingService
     private readonly routing: RoutingProvider,
     private readonly settings: RideSettings,
     private readonly events: DomainEvents,
+    private readonly destinations: DestinationService,
   ) {}
 
   onApplicationBootstrap() {
@@ -72,7 +77,27 @@ export class MatchingService
       category: ride.category,
       limit: perRound + skip.size,
     });
-    const chosen = nearby.filter((d) => !skip.has(d.userId)).slice(0, perRound);
+    const candidates = nearby.filter((d) => !skip.has(d.userId));
+    // Drivers in destination mode only get rides that take them that way.
+    const destinations = await this.destinations.activeFor(
+      candidates.map((d) => d.userId),
+    );
+    const pickupAt = { lat: ride.pickupLat, lng: ride.pickupLng };
+    const dropoffAt = { lat: ride.dropoffLat, lng: ride.dropoffLng };
+    const chosen = candidates
+      .filter((d) => {
+        const destination = destinations.get(d.userId);
+        return (
+          !destination ||
+          takesTowardsDestination(
+            { lat: d.lat, lng: d.lng },
+            pickupAt,
+            dropoffAt,
+            destination,
+          )
+        );
+      })
+      .slice(0, perRound);
     if (!chosen.length) return 0;
 
     const expiresAt = new Date(Date.now() + this.offerTtlSeconds(ride) * 1000);
