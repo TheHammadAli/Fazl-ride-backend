@@ -13,6 +13,7 @@ import { CancellationsService } from '../cancellations/cancellations.service.js'
 import { findMissingProfile } from '../drivers/driver-requirements.js';
 import { DomainEvents } from '../events/domain-events.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { DestinationService } from './destination.service.js';
 import { DriverLocationStore } from './driver-location.store.js';
 import { GoOnlineDto, LocationUpdateDto } from './dto/presence.dto.js';
 import { onlineSecondsSince } from './online-time.js';
@@ -26,6 +27,7 @@ export class PresenceService {
     private readonly store: DriverLocationStore,
     private readonly events: DomainEvents,
     private readonly cancellations: CancellationsService,
+    private readonly destination: DestinationService,
     config: ConfigService,
   ) {
     this.tzOffset = Number(
@@ -110,6 +112,7 @@ export class PresenceService {
       lng: dto.lng,
       busy: presence.busy,
     });
+    await this.destination.checkArrival(userId, dto);
     return { ok: true };
   }
 

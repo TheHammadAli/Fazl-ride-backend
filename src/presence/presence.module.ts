@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { CancellationsModule } from '../cancellations/cancellations.module.js';
 import { AuthModule } from '../auth/auth.module.js';
+import { DestinationService } from './destination.service.js';
 import { DriverLocationStore } from './driver-location.store.js';
 import { PostgisDriverLocationStore } from './postgis-driver-location.store.js';
 import { NearbyDriversController } from './nearby-drivers.controller.js';
@@ -14,9 +15,15 @@ import { PresenceService } from './presence.service.js';
   providers: [
     PresenceService,
     PresenceSweeperService,
+    DestinationService,
     // Replace this binding to keep live locations in Redis instead.
     { provide: DriverLocationStore, useClass: PostgisDriverLocationStore },
   ],
-  exports: [PresenceService, PresenceSweeperService, DriverLocationStore],
+  exports: [
+    PresenceService,
+    PresenceSweeperService,
+    DriverLocationStore,
+    DestinationService,
+  ],
 })
 export class PresenceModule {}

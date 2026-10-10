@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Post,
@@ -13,7 +14,12 @@ import { Roles } from '../common/decorators/roles.decorator.js';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../common/guards/roles.guard.js';
 import { Role } from '../generated/prisma/enums.js';
-import { GoOnlineDto, LocationUpdateDto } from './dto/presence.dto.js';
+import { DestinationService } from './destination.service.js';
+import {
+  DestinationDto,
+  GoOnlineDto,
+  LocationUpdateDto,
+} from './dto/presence.dto.js';
 import { PresenceService } from './presence.service.js';
 
 // Driver mode only: the `driver` role is granted when an admin approves the driver.
@@ -23,7 +29,27 @@ import { PresenceService } from './presence.service.js';
 @Roles(Role.driver)
 @Controller('drivers/me')
 export class PresenceController {
-  constructor(private readonly presence: PresenceService) {}
+  constructor(
+    private readonly presence: PresenceService,
+    private readonly destination: DestinationService,
+  ) {}
+
+  // Destination mode: only rides heading this way while it is on.
+  @Get('destination')
+  getDestination(@CurrentUser() user: AuthUser) {
+    return this.destination.get(user.id);
+  }
+
+  @Post('destination')
+  @HttpCode(200)
+  setDestination(@CurrentUser() user: AuthUser, @Body() dto: DestinationDto) {
+    return this.destination.set(user.id, dto);
+  }
+
+  @Delete('destination')
+  clearDestination(@CurrentUser() user: AuthUser) {
+    return this.destination.clear(user.id);
+  }
 
   @Post('online')
   @HttpCode(200)
