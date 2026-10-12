@@ -11,6 +11,7 @@ import { DriverLocationStore } from '../presence/driver-location.store.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { RoutingProvider } from '../routing/routing.provider.js';
 import { RideSettings } from './rides.settings.js';
+import { WalletService } from '../wallet/wallet.service.js';
 
 // Only one app instance runs a tick at a time (Postgres advisory lock), so the
 // sweeper stays correct if the API is scaled to several instances.
@@ -47,6 +48,7 @@ export class MatchingService
     private readonly settings: RideSettings,
     private readonly events: DomainEvents,
     private readonly destinations: DestinationService,
+    private readonly wallet: WalletService,
   ) {}
 
   onApplicationBootstrap() {
@@ -77,7 +79,11 @@ export class MatchingService
       category: ride.category,
       limit: perRound + skip.size,
     });
-    const candidates = nearby.filter((d) => !skip.has(d.userId));
+    // Drivers owing commission past the limit get nothing new until they top up.
+    const owing = await this.wallet.withDues(nearby.map((d) => d.userId));
+    const candidates = nearby.filter(
+      (d) => !skip.has(d.userId) && !owing.has(d.userId),
+    );
     // Drivers in destination mode only get rides that take them that way.
     const destinations = await this.destinations.activeFor(
       candidates.map((d) => d.userId),

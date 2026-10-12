@@ -15,6 +15,7 @@ import { DomainEvents } from '../events/domain-events.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { DestinationService } from './destination.service.js';
 import { DriverLocationStore } from './driver-location.store.js';
+import { WalletService } from '../wallet/wallet.service.js';
 import { GoOnlineDto, LocationUpdateDto } from './dto/presence.dto.js';
 import { onlineSecondsSince } from './online-time.js';
 
@@ -28,6 +29,7 @@ export class PresenceService {
     private readonly events: DomainEvents,
     private readonly cancellations: CancellationsService,
     private readonly destination: DestinationService,
+    private readonly wallet: WalletService,
     config: ConfigService,
   ) {
     this.tzOffset = Number(
@@ -60,6 +62,8 @@ export class PresenceService {
         missingProfile,
       });
     }
+    // Commission owed on cash rides past the allowed limit: top up first.
+    await this.wallet.assertNoDues(userId);
     const vehicle = dto.vehicleId
       ? profile.vehicles.find((v) => v.id === dto.vehicleId)
       : profile.vehicles[0];
