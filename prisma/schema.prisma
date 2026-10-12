@@ -111,6 +111,9 @@ model User {
   earnings          DriverEarning[]
   sentRideMessages  RideMessage[]
   driverDestination DriverDestination?
+  wallet            Wallet?
+  walletEntries     WalletTransaction[]
+  walletRequests    WalletRequest[]
 
   @@map("users")
 }
@@ -357,6 +360,9 @@ enum OfferStatus {
 
 enum PaymentMethod {
   cash
+  // Paid from the passenger's wallet when the ride completes; whatever the
+  // balance does not cover is collected in cash.
+  wallet
 }
 
 enum CancelledBy {
@@ -424,6 +430,10 @@ model Ride {
   fare            Int?
 
   paymentMethod       PaymentMethod @default(cash)
+  // Set when the ride completes: how much of the fare came out of the
+  // passenger's wallet (the rest is cash), and the platform's commission.
+  walletPaid          Int?
+  commission          Int?
   cancelledBy         CancelledBy?
   // Which state the ride was in when it was cancelled (for cancellation statistics).
   cancelledFromStatus RideStatus?
@@ -558,6 +568,8 @@ enum EarningType {
   ride_fare
   adjustment
   cashout
+  // The platform's share of a ride (negative), taken from the driver's wallet.
+  commission
 }
 
 // A driver's earnings ledger. Amounts are signed PKR. No commission is taken for
@@ -718,4 +730,116 @@ model AdminNotification {
 
   @@index([createdAt])
   @@map("admin_notifications")
+}
+
+enum WalletTransactionType {
+  topup
+  ride_payment
+  ride_earning
+  commission
+  change_sent
+  change_received
+  withdrawal
+  withdrawal_reversal
+  adjustment
+  refund
+}
+
+enum WalletRequestKind {
+  topup
+  withdrawal
+}
+
+enum WalletRequestStatus {
+  pending
+  approved
+  rejected
+  cancelled
+}
+
+// One balance per person, in whole PKR. A driver's balance can go below zero
+// (commission on cash rides); a passenger's never does.
+model Wallet {
+  userId    String   @id @db.Uuid
+  balance   Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("wallets")
+}
+
+// The wallet's ledger. Entries are never changed or deleted: a mistake is
+// undone with an opposite entry. `key` makes every posting idempotent (one
+// commission per ride, one credit per approved top-up...).
+model WalletTransaction {
+  id           String                @id @default(uuid()) @db.Uuid
+  userId       String                @db.Uuid
+  type         WalletTransactionType
+  amount       Int
+  balanceAfter Int
+  key          String                @unique
+  rideId       String?               @db.Uuid
+  requestId    String?               @db.Uuid
+  note         String?
+  // The admin who made it (adjustments, approvals); null for the system.
+  actorId      String?               @db.Uuid
+  createdAt    DateTime              @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@map("wallet_transactions")
+}
+
+// A top-up the person paid outside the app (bank / JazzCash / Easypaisa
+// transfer) waiting for an admin to check it, or a withdrawal waiting to be
+// paid out. A withdrawal's amount is held (taken off the balance) as soon as
+// it is asked for and given back if it is rejected or cancelled.
+model WalletRequest {
+  id            String              @id @default(uuid()) @db.Uuid
+  userId        String              @db.Uuid
+  kind          WalletRequestKind
+  status        WalletRequestStatus @default(pending)
+  amount        Int
+  // jazzcash, easypaisa, bank.
+  method        String
+  // Top-up: the transfer's transaction id. Withdrawal: the payout's, set by the admin.
+  reference     String?
+  // Private storage key of the transfer screenshot (top-up, optional).
+  proofKey      String?
+  // Withdrawal: where to send the money.
+  accountTitle  String?
+  accountNumber String?
+  reviewedBy    String?             @db.Uuid
+  reviewedAt    DateTime?
+  rejectReason  String?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([status, kind, createdAt])
+  @@index([userId, createdAt])
+  @@map("wallet_requests")
+}
+
+// Wallet rules, changed by admins without a release. Always a single row (id 1).
+model WalletSettings {
+  id                    Int      @id @default(1)
+  // Platform's share of every completed ride's fare.
+  commissionPercent     Float    @default(0)
+  // A driver below this balance cannot go online until they top up.
+  driverMinBalance      Int      @default(-500)
+  minTopup              Int      @default(100)
+  maxTopup              Int      @default(50000)
+  minWithdrawal         Int      @default(1000)
+  // The most a driver can put into a passenger's wallet as change.
+  maxChange             Int      @default(500)
+  walletPaymentsEnabled Boolean  @default(true)
+  // Where to send a top-up (account titles and numbers), shown in the app.
+  topupInstructions     String   @default("")
+  updatedAt             DateTime @updatedAt
+
+  @@map("wallet_settings")
 }
