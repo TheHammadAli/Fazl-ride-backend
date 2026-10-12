@@ -25,6 +25,7 @@ import { RidesModule } from './rides/rides.module.js';
 import { StorageModule } from './storage/storage.module.js';
 import { UsersModule } from './users/users.module.js';
 import { VehicleCategoriesModule } from './vehicle-categories/vehicle-categories.module.js';
+import { WalletModule } from './wallet/wallet.module.js';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { VehicleCategoriesModule } from './vehicle-categories/vehicle-categories
     VehicleCategoriesModule,
     DriversModule,
     PresenceModule,
+    WalletModule,
     RidesModule,
     ChatModule,
     RealtimeModule,
