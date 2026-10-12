@@ -8,6 +8,7 @@ import { Subscription } from 'rxjs';
 import { DomainEvents } from '../events/domain-events.service.js';
 import { RidesService } from '../rides/rides.service.js';
 import { RoutingProvider } from '../routing/routing.provider.js';
+import { WalletService } from '../wallet/wallet.service.js';
 import { RealtimeGateway } from './realtime.gateway.js';
 
 // A driver position is sent to the passenger at most this often.
@@ -26,6 +27,7 @@ export class RealtimeEventsService implements OnModuleInit, OnModuleDestroy {
     private readonly gateway: RealtimeGateway,
     private readonly rides: RidesService,
     private readonly routing: RoutingProvider,
+    private readonly wallet: WalletService,
   ) {}
 
   onModuleInit() {
@@ -96,6 +98,12 @@ export class RealtimeEventsService implements OnModuleInit, OnModuleDestroy {
         // Destination mode switched itself off on arrival.
         return this.gateway.emitToUser(p.userId, 'driver:destination_reached', {
           address: p.address,
+        });
+
+      case 'wallet.changed':
+        // A balance moved (ride paid, top-up approved, change received...).
+        return this.gateway.emitToUser(p.userId, 'wallet:update', {
+          balance: await this.wallet.balanceOf(p.userId),
         });
 
       case 'user.blocked':
