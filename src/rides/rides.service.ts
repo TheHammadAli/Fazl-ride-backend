@@ -24,6 +24,7 @@ import { ratingView } from './rating.js';
 import { RatingsService } from './ratings.service.js';
 import { RoutingProvider } from '../routing/routing.provider.js';
 import { StorageService } from '../storage/storage.service.js';
+import { WalletService } from '../wallet/wallet.service.js';
 import { RideSettings } from './rides.settings.js';
 import { billedDistanceMeters, FareRatesSnapshot } from './trip-distance.js';
 import { VehicleCategoriesService } from '../vehicle-categories/vehicle-categories.service.js';
@@ -51,6 +52,7 @@ export class RidesService {
     private readonly earnings: EarningsService,
     private readonly vehicleCategories: VehicleCategoriesService,
     private readonly storage: StorageService,
+    private readonly wallet: WalletService,
   ) {}
 
   // The lowest a negotiable price may go for a ride whose fixed/estimated
@@ -83,6 +85,9 @@ export class RidesService {
     }
     const freight = category.service === 'freight';
     if (freight) await this.assertFreightRequest(passengerId, dto);
+    const paymentMethod = dto.paymentMethod ?? 'cash';
+    if (paymentMethod === 'wallet')
+      await this.wallet.assertCanPayByWallet(passengerId);
     const tripType = dto.tripType ?? TripType.within_city;
     const quote = await this.fares.quote(
       dto.pickup,
@@ -116,6 +121,7 @@ export class RidesService {
           negotiable,
           offeredFare: negotiable ? (dto.offeredFare ?? quote.fare) : null,
           autoAccept: negotiable ? (dto.autoAccept ?? false) : false,
+          paymentMethod,
           rates: quote.rates,
           searchRadiusMeters: freight
             ? this.settings.freightRadiusMeters
@@ -789,7 +795,7 @@ export class RidesService {
       );
     }
 
-    await this.prisma.$transaction(async (tx) => {
+    const { walletPaid } = await this.prisma.$transaction(async (tx) => {
       const done = await tx.ride.updateMany({
         where: { id: rideId, driverId, status: 'started' },
         data: {
@@ -807,10 +813,32 @@ export class RidesService {
         rideId,
         amount: fare,
       });
+      // Wallet part of the fare and the platform's commission.
+      const settled = await this.wallet.settleRide(tx, {
+        id: rideId,
+        passengerId: ride.passengerId,
+        driverId,
+        fare,
+        paymentMethod: ride.paymentMethod,
+      });
+      await tx.ride.update({
+        where: { id: rideId },
+        data: {
+          walletPaid: settled.walletPaid,
+          commission: settled.commission,
+        },
+      });
+      await this.earnings.recordCommission(tx, {
+        driverId,
+        rideId,
+        amount: settled.commission,
+      });
       await tx.$executeRaw`
         UPDATE driver_presence SET "busy" = false, "updatedAt" = now()
         WHERE "userId" = ${driverId}::uuid`;
+      return settled;
     });
+    this.wallet.notify(driverId, ...(walletPaid > 0 ? [ride.passengerId] : []));
     this.events.emit('ride.completed', { rideId, driverId, fare });
     return this.get(driverId, rideId);
   }

@@ -15,7 +15,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { LatLngDto } from '../../common/dto/geo.dto.js';
-import { TripType } from '../../generated/prisma/enums.js';
+import { PaymentMethod, TripType } from '../../generated/prisma/enums.js';
 
 // A point plus the address text the app shows to the driver and in history.
 export class PlaceDto extends LatLngDto {
@@ -121,6 +121,12 @@ export class RequestRideDto {
   @IsOptional()
   @IsBoolean()
   autoAccept?: boolean;
+
+  // Defaults to cash. "wallet" takes the fare from the wallet when the ride
+  // completes; what the balance does not cover is paid in cash.
+  @IsOptional()
+  @IsEnum(PaymentMethod)
+  paymentMethod?: PaymentMethod;
 }
 
 export class CancelRideDto {

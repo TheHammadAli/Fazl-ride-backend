@@ -14,9 +14,11 @@ const LABELS = {
   ride_fare: 'Ride Fare',
   adjustment: 'Adjustment',
   cashout: 'Cashout',
+  commission: 'Commission',
 } as const;
-// Cashouts exist in the ledger design but are hidden until wallets / online payments do.
-const VISIBLE = ['ride_fare', 'adjustment'] as const;
+// Cashouts are reserved and not written; withdrawals live in the wallet.
+// Commission is shown so the total is what the driver actually keeps.
+const VISIBLE = ['ride_fare', 'adjustment', 'commission'] as const;
 
 @Injectable()
 export class EarningsService {
@@ -45,6 +47,25 @@ export class EarningsService {
           rideId: input.rideId,
           type: 'ride_fare',
           amount: input.amount,
+        },
+      ],
+      skipDuplicates: true,
+    });
+  }
+
+  // The platform's share of a ride, as a negative entry next to its fare.
+  recordCommission(
+    tx: Prisma.TransactionClient,
+    input: { driverId: string; rideId: string; amount: number },
+  ) {
+    if (input.amount <= 0) return Promise.resolve({ count: 0 });
+    return tx.driverEarning.createMany({
+      data: [
+        {
+          driverId: input.driverId,
+          rideId: input.rideId,
+          type: 'commission',
+          amount: -input.amount,
         },
       ],
       skipDuplicates: true,

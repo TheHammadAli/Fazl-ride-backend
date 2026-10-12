@@ -83,6 +83,14 @@ export function presentRide(
         : null,
     currency: 'PKR',
     paymentMethod: ride.paymentMethod,
+    // Once completed: how the fare was paid. The driver collects `cash`.
+    payment:
+      ride.status === 'completed' && ride.fare != null
+        ? {
+            walletPaid: ride.walletPaid ?? 0,
+            cash: ride.fare - (ride.walletPaid ?? 0),
+          }
+        : null,
     pickup: {
       lat: ride.pickupLat,
       lng: ride.pickupLng,
