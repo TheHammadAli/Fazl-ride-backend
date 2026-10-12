@@ -42,7 +42,7 @@ Source spec: `FAZL Drivedocx.pdf` (34 sections, in `~/Documents/fazl`, next to t
 | Admin | Admin-role REST endpoints in this backend, documented in Swagger (20 exist). The web Admin Panel itself will be a new app in `fazl-parking-frontned`, built later; FAZL's existing admin is not used. Until then use Swagger/Prisma Studio |
 | Maps | Google Maps |
 | Currency | PKR (mockups show $) |
-| Payments | Cash only for now |
+| Payments | Cash, plus an in-app wallet (2026-10-10, see "Wallet"). Gateways (JazzCash/Easypaisa/cards) come later as adapters |
 
 Other libs planned: Passport JWT, class-validator, Swagger, Throttler, BullMQ (later), Firebase Admin (FCM push), an SMS provider for OTP (undecided, Twilio is expensive in Pakistan).
 
@@ -238,3 +238,18 @@ A driver heading somewhere (e.g. back to Islamabad from Murree) sets a destinati
 - `GET/POST/DELETE drivers/me/destination` (driver role, `DestinationService` in `src/presence/`): POST `{lat, lng, address}` turns it on for `DESTINATION_HOURS` (3) and counts a use (moving the place while on is not a new use); at most `DESTINATION_USES_PER_DAY` (2) per business day, else 409. GET also returns `usesLeftToday`, `usesPerDay` and `lastPlace` (to offer it again).
 - Switches off by itself: after the hours, or when a position update (`PresenceService.updateLocation`, REST and socket) arrives within `DESTINATION_ARRIVED_METERS` (2 km) - emits `driver.destination_reached`, pushed as `driver:destination_reached`.
 - The rule (`src/presence/destination-rule.ts`, unit-tested with Murree/Islamabad points): the drop-off must end nearer the destination than the driver is now, and either within 5 km of it or covering at least 30% of the way; and driver -> pickup -> drop-off -> destination must be at most 1.5x the direct distance + 3 km. Straight-line distances. Applied in `MatchingService.offerRide` (rides, freight, bidding broadcasts and re-broadcasts alike).
+
+## Wallet (2026-10-10, user said "professional implementation, apne tareeqe se")
+Careem Pay / inDrive / Bykea style. Module `src/wallet/` (`WalletService`, `AdminWalletService`, `wallet-rules.ts` + spec), migration `20261010090000_wallet`.
+- Tables: `wallets` (one balance per user, whole PKR), `wallet_transactions` (append-only ledger, signed amounts, `balanceAfter`, unique `key` per business event, e.g. `ride:<id>:commission`, `request:<id>:credit`), `wallet_requests` (top-ups and withdrawals waiting for an admin), `wallet_settings` (single row id 1, admin-editable).
+- `WalletService.post(tx, posting)`: idempotent (insert with skipDuplicates, a repeat key changes nothing), balance moved by one conditional `UPDATE ... RETURNING`, so concurrent postings cannot overspend. Only drivers' postings may go negative (commission, change, ride earnings). Never edit or delete ledger rows; correct with an opposite entry (admin `adjust`).
+- Rides: `POST rides` takes `paymentMethod: cash|wallet` (wallet needs `walletPaymentsEnabled` and a positive balance). On completion, inside the same transaction: wallet part = min(fare, balance) moves passenger -> driver, the rest is cash; commission = `commissionPercent` of the fare is taken from the driver's wallet (negative `commission` entry also written to `driver_earnings`, so earnings are net). `rides.walletPaid` and `rides.commission` are stored; the ride view has `payment: {walletPaid, cash}` once completed.
+- Dues: a driver below `driverMinBalance` (default -500) cannot go online (403 `WALLET_DUES` with `duesToClear`) and `MatchingService.offerRide` skips them.
+- Change: `POST wallet/change {rideId, amount}` (driver, completed ride, within 2 h, once per ride, at most `maxChange`): driver -> passenger.
+- Top-up (manual for now): user pays FAZL's account (`topupInstructions` shown in the app), then `POST wallet/topups {amount, method, reference, proofKey?}` (screenshot via `POST wallet/proof`). Same method+reference cannot be used twice. Admin approves (credit) or rejects. A gateway later = a new adapter that credits through the same `post()`.
+- Withdrawal (driver only): `POST wallet/withdrawals`; the amount is held at once, released on reject/cancel, stays out on approve (admin pays manually and may add the payout reference). Minimum `minWithdrawal`.
+- Max 3 pending requests per kind per user. New requests create an admin notification (`targetType: wallet_request`).
+- User routes: `GET wallet`, `GET wallet/transactions`, `GET wallet/requests`, `POST wallet/requests/:id/cancel`. Admin: `GET admin/wallet/overview`, `PUT admin/wallet/settings`, `GET admin/wallet/requests`, `POST admin/wallet/requests/:id/approve|reject`, `GET admin/wallet/wallets`, `GET admin/wallet/wallets/:userId`, `POST admin/wallet/wallets/:userId/adjust`. All admin actions are audited.
+- Realtime: `wallet.changed` domain event -> socket `wallet:update {balance}` to that user.
+- Defaults: commission 0%, min balance -500, top-up 100-50,000, withdrawal min 1,000, change max 500, wallet payments on.
+
