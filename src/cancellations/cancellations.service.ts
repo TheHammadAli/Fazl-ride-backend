@@ -45,7 +45,14 @@ export class CancellationsService {
       now.getTime() - this.rule.windowMs - this.rule.cooldownMs,
     );
     const rows = await this.prisma.rideCancellation.findMany({
-      where: { userId, role, forgivenAt: null, createdAt: { gt: since } },
+      where: {
+        userId,
+        role,
+        forgivenAt: null,
+        createdAt: { gt: since },
+        // Missed bookings for later have their own limit (Ride Later).
+        fromStatus: { not: 'scheduled' },
+      },
       select: { createdAt: true },
     });
     const windowStart = now.getTime() - this.rule.windowMs;
