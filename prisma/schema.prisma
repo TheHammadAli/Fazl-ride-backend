@@ -385,10 +385,12 @@ model Ride {
   category        String
   tripType        TripType   @default(within_city)
   status          RideStatus @default(requested)
-  // Booked for later: when the customer wants it, and when the search for a
-  // driver starts (a lead time before it). Null for a ride wanted now.
+  // Booked for later (Ride Later): when the customer wants it. Null for a
+  // ride wanted now. The confirmed driver starts it themselves (inDrive
+  // style); see BookingSettings for the windows.
   scheduledAt     DateTime?
-  dispatchAt      DateTime?
+  // The confirmed driver never started the booking.
+  noShow          Boolean   @default(false)
   // 'ride' or 'freight'. A freight booking goes to every nearby driver of
   // its vehicle type, who accept or counter the offered fare.
   service         String     @default("ride")
@@ -479,13 +481,14 @@ model Ride {
   cancellationLog RideCancellation[]
   earningEntries  DriverEarning[]
   messages        RideMessage[]
+  reminders       BookingReminder[]
 
   @@index([passengerId, status])
   @@index([driverId, status])
   @@index([status, expiresAt])
   @@index([category])
   @@index([tripType])
-  @@index([dispatchAt])
+  @@index([status, scheduledAt])
   @@map("rides")
 }
 
@@ -870,4 +873,60 @@ model DeviceToken {
 
   @@index([userId])
   @@map("device_tokens")
+}
+
+// Ride Later rules, changed by admins without a release. Always one row (id 1).
+// Minutes are relative to the booked time. "ride" = within a city,
+// "freight" = goods, "intercity" = a city to city ride.
+model BookingSettings {
+  id                  Int      @id @default(1)
+  minAheadMinutes     Int      @default(30)
+  maxAheadDays        Int      @default(7)
+  maxPerPassenger     Int      @default(3)
+  // Drivers see open bookings within this distance of where they last were.
+  reservationRadiusKm Int      @default(30)
+  // When the confirmed driver may press Start: from this long before the
+  // time until this long after it.
+  rideStartBefore      Int     @default(60)
+  rideStartAfter       Int     @default(30)
+  freightStartBefore   Int     @default(90)
+  freightStartAfter    Int     @default(60)
+  intercityStartBefore Int     @default(120)
+  intercityStartAfter  Int     @default(60)
+  // Nobody confirmed yet: the customer is warned this long before (twice);
+  // the booking closes at the booked time.
+  rideWarnFirst        Int     @default(60)
+  rideWarnSecond       Int     @default(30)
+  freightWarnFirst     Int     @default(120)
+  freightWarnSecond    Int     @default(60)
+  intercityWarnFirst   Int     @default(360)
+  intercityWarnSecond  Int     @default(120)
+  // Reminders: both people this long before; the driver to press Start this
+  // long before; and the evening before (hour of the day, business time).
+  reminderMinutes      Int     @default(60)
+  startNudgeMinutes    Int     @default(15)
+  eveningReminderHour  Int     @default(21)
+  // Giving up a confirmed booking this close to the time counts against the
+  // driver, like not coming at all.
+  lateReleaseMinutes   Int     @default(120)
+  // This many no-shows / late releases within the window stop a driver
+  // taking bookings for this many days.
+  noShowLimit          Int     @default(3)
+  noShowWindowDays     Int     @default(30)
+  noShowBlockDays      Int     @default(7)
+  updatedAt            DateTime @updatedAt
+
+  @@map("booking_settings")
+}
+
+// Which reminder already went out for a booking (each kind once).
+model BookingReminder {
+  rideId String   @db.Uuid
+  kind   String
+  sentAt DateTime @default(now())
+
+  ride Ride @relation(fields: [rideId], references: [id], onDelete: Cascade)
+
+  @@id([rideId, kind])
+  @@map("booking_reminders")
 }
