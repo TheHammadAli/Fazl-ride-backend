@@ -830,6 +830,8 @@ model WalletSettings {
   id                    Int      @id @default(1)
   // Platform's share of every completed ride's fare.
   commissionPercent     Float    @default(0)
+  // A new driver's first rides (and freight jobs) carry no commission.
+  freeRidesPerDriver    Int      @default(10)
   // A driver below this balance cannot go online until they top up.
   driverMinBalance      Int      @default(-500)
   minTopup              Int      @default(100)
