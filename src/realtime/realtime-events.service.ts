@@ -75,8 +75,8 @@ export class RealtimeEventsService implements OnModuleInit, OnModuleDestroy {
         // A booking for later got (or lost) its confirmed driver.
         return this.sendRideUpdate(p.rideId);
 
-      case 'ride.dispatched':
-        // A booking for later started looking for a driver.
+      case 'booking.missed':
+        // The confirmed driver never started; the customer decides what next.
         return this.sendRideUpdate(p.rideId);
 
       case 'ride.driver_cancelled':

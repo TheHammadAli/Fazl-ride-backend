@@ -165,6 +165,20 @@ export class RidesController {
     return this.reservations.offer(user.id, id, dto.amount);
   }
 
+  // Driver, on the day: heading to the pickup of a confirmed booking. It
+  // becomes an ordinary ride (accepted).
+  @Post(':id/start-booking')
+  @HttpCode(200)
+  @UseGuards(RolesGuard)
+  @Roles(Role.driver)
+  async startBooking(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    await this.reservations.start(user.id, id);
+    return this.rides.get(user.id, id);
+  }
+
   @Post(':id/arrived')
   @HttpCode(200)
   @UseGuards(RolesGuard)

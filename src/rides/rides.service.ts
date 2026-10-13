@@ -26,6 +26,7 @@ import { RoutingProvider } from '../routing/routing.provider.js';
 import { StorageService } from '../storage/storage.service.js';
 import { WalletService } from '../wallet/wallet.service.js';
 import { ReservationsService } from './reservations.service.js';
+import { BookingSettingsService } from './booking-settings.service.js';
 import { RideSettings } from './rides.settings.js';
 import { billedDistanceMeters, FareRatesSnapshot } from './trip-distance.js';
 import { VehicleCategoriesService } from '../vehicle-categories/vehicle-categories.service.js';
@@ -55,6 +56,7 @@ export class RidesService {
     private readonly storage: StorageService,
     private readonly wallet: WalletService,
     private readonly reservations: ReservationsService,
+    private readonly bookingSettings: BookingSettingsService,
   ) {}
 
   // The lowest a negotiable price may go for a ride whose fixed/estimated
@@ -105,7 +107,7 @@ export class RidesService {
     }
     const now = new Date();
     const schedule = dto.scheduledAt
-      ? await this.planSchedule(passengerId, new Date(dto.scheduledAt), freight)
+      ? await this.planSchedule(passengerId, new Date(dto.scheduledAt))
       : null;
     let ride: RideWithRelations;
     try {
@@ -153,8 +155,7 @@ export class RidesService {
           ...(schedule && {
             status: 'scheduled' as const,
             scheduledAt: schedule.scheduledAt,
-            dispatchAt: schedule.dispatchAt,
-            // Not searched again until it is dispatched.
+            // Never searched by the sweeper: drivers offer ahead of time.
             nextExpandAt: schedule.expiresAt,
           }),
           ...(freight && {
@@ -187,8 +188,16 @@ export class RidesService {
       throw error;
     }
 
-    // Booked for later: nobody is asked until its dispatch time.
-    if (schedule) return { ...presentRide(ride), offersSent: 0 };
+    // Booked for later: drivers near the pickup are told it is there to
+    // offer on; nobody gets it automatically.
+    if (schedule) {
+      const driverIds = await this.reservations.driversFor(ride);
+      this.events.emit('booking.created', { rideId: ride.id, driverIds });
+      return {
+        ...(await this.reservations.present(ride)),
+        offersSent: driverIds.length,
+      };
+    }
 
     const offersSent = await this.matching.offerRide(ride);
     this.events.emit('ride.requested', {
@@ -199,49 +208,30 @@ export class RidesService {
     return { ...presentRide(ride), offersSent };
   }
 
-  // A booking for later: at least SCHEDULE_MIN_AHEAD_MINUTES and at most
-  // SCHEDULE_MAX_AHEAD_DAYS ahead, a few per customer. The search starts a
-  // lead time before (longer for freight) and keeps going a little past it.
-  private async planSchedule(
-    passengerId: string,
-    scheduledAt: Date,
-    freight: boolean,
-  ) {
-    const s = this.settings;
+  // A booking for later (rules in BookingSettings): far enough ahead, not
+  // too far, a few per customer. It closes at its time if nobody took it.
+  private async planSchedule(passengerId: string, scheduledAt: Date) {
+    const s = await this.bookingSettings.get();
     const now = Date.now();
-    if (scheduledAt.getTime() < now + s.scheduleMinAheadMinutes * 60_000) {
+    if (scheduledAt.getTime() < now + s.minAheadMinutes * 60_000) {
       throw new BadRequestException(
-        `Book at least ${s.scheduleMinAheadMinutes} minutes ahead`,
+        `Book at least ${s.minAheadMinutes} minutes ahead`,
       );
     }
-    if (
-      scheduledAt.getTime() >
-      now + s.scheduleMaxAheadDays * 24 * 60 * 60_000
-    ) {
+    if (scheduledAt.getTime() > now + s.maxAheadDays * 24 * 60 * 60_000) {
       throw new BadRequestException(
-        `Book at most ${s.scheduleMaxAheadDays} days ahead`,
+        `Book at most ${s.maxAheadDays} days ahead`,
       );
     }
     const held = await this.prisma.ride.count({
       where: { passengerId, status: 'scheduled' },
     });
-    if (held >= s.scheduledMaxPerPassenger) {
+    if (held >= s.maxPerPassenger) {
       throw new ConflictException(
-        `You can have up to ${s.scheduledMaxPerPassenger} scheduled bookings`,
+        `You can have up to ${s.maxPerPassenger} scheduled bookings`,
       );
     }
-    const lead = freight
-      ? s.freightScheduleLeadMinutes
-      : s.rideScheduleLeadMinutes;
-    return {
-      scheduledAt,
-      dispatchAt: new Date(
-        Math.max(now, scheduledAt.getTime() - lead * 60_000),
-      ),
-      expiresAt: new Date(
-        scheduledAt.getTime() + s.scheduledGraceMinutes * 60_000,
-      ),
-    };
+    return { scheduledAt, expiresAt: scheduledAt };
   }
 
   // The customer's bookings for later, soonest first.
@@ -256,9 +246,10 @@ export class RidesService {
     });
     // Each with how many drivers have offered so far (before one is
     // confirmed).
+    const s = await this.bookingSettings.get();
     return {
       items: rides.map((r) => ({
-        ...presentRide(r),
+        ...presentRide(r, { booking: this.reservations.bookingView(r, s) }),
         offersCount: r._count.offers,
       })),
     };
@@ -915,7 +906,8 @@ export class RidesService {
     // (ride.fare is already set); the metered calculation below is only for
     // the original fixed-price mode.
     let fare: number;
-    if (ride.negotiable && ride.fare != null) {
+    // A booking for later keeps the price agreed with its driver too.
+    if ((ride.negotiable || ride.scheduledAt) && ride.fare != null) {
       fare = ride.fare;
     } else {
       const rates =
@@ -1206,8 +1198,18 @@ export class RidesService {
         ? await this.ratings.mine(ride.id, viewerId)
         : null;
     const loadPhotoUrl = await this.avatarUrl(ride.loadPhotoKey);
+    const booking = ride.scheduledAt
+      ? this.reservations.bookingView(ride, await this.bookingSettings.get())
+      : null;
     if (!ride.driverId || !DRIVER_ACTIVE.includes(ride.status)) {
-      return presentRide(ride, { myRating, loadPhotoUrl });
+      return presentRide(ride, {
+        myRating,
+        loadPhotoUrl,
+        booking,
+        driverAvatarUrl: ride.driverId
+          ? await this.avatarUrl(ride.driver?.avatarKey ?? null)
+          : null,
+      });
     }
     const driverLocation = await this.locations.getLocation(ride.driverId);
     let driverEtaSeconds: number | null = null;
@@ -1227,6 +1229,7 @@ export class RidesService {
       driverAvatarUrl: await this.avatarUrl(ride.driver?.avatarKey ?? null),
       myRating,
       loadPhotoUrl,
+      booking,
     });
   }
 

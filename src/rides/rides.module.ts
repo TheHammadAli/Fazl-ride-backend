@@ -19,6 +19,9 @@ import { RideSettings } from './rides.settings.js';
 import { RidesService } from './rides.service.js';
 
 import { FreightController } from './freight.controller.js';
+import { AdminBookingSettingsController } from './admin-booking-settings.controller.js';
+import { BookingSettingsService } from './booking-settings.service.js';
+import { BookingSweeperService } from './booking-sweeper.service.js';
 import { FreightService } from './freight.service.js';
 import { ReservationsService } from './reservations.service.js';
 
@@ -33,6 +36,7 @@ import { ReservationsService } from './reservations.service.js';
     WalletModule,
   ],
   controllers: [
+    AdminBookingSettingsController,
     RidesController,
     DriverRidesController,
     AdminFaresController,
@@ -40,6 +44,8 @@ import { ReservationsService } from './reservations.service.js';
     FreightController,
   ],
   providers: [
+    BookingSettingsService,
+    BookingSweeperService,
     FaresService,
     RidesService,
     MatchingService,

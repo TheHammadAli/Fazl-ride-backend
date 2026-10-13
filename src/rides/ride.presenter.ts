@@ -48,6 +48,8 @@ export interface RideViewExtras {
   driverAvatarUrl?: string | null;
   // Freight: signed URL of the photo of the goods.
   loadPhotoUrl?: string | null;
+  // A booking for later: when its confirmed driver may press Start.
+  booking?: { kind: string; startFrom: Date; startUntil: Date } | null;
 }
 
 // Phone numbers are shared only while a ride is on, and only with the two people on it
@@ -151,7 +153,8 @@ export function presentRide(
       : null,
     requestedAt: ride.requestedAt,
     scheduledAt: ride.scheduledAt,
-    dispatchAt: ride.dispatchAt,
+    booking: extras.booking ?? null,
+    noShow: ride.noShow,
     expiresAt: ride.status === 'requested' ? ride.expiresAt : null,
     acceptedAt: ride.acceptedAt,
     arrivedAt: ride.arrivedAt,

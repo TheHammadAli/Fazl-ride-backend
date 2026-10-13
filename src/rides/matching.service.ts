@@ -144,9 +144,6 @@ export class MatchingService
   // Expires stale requests and offers, and widens the search for rides nobody took yet.
   async tick(now = new Date()) {
     const expiredRideIds: string[] = [];
-    const dispatchedRideIds: string[] = [];
-    const assigned: { rideId: string; driverId: string }[] = [];
-    const released: { rideId: string; driverId: string }[] = [];
     const result = await this.prisma.$transaction(
       async (tx) => {
         const [{ locked }] = await tx.$queryRaw<{ locked: boolean }[]>`
@@ -178,100 +175,6 @@ export class MatchingService
           where: { status: 'pending', expiresAt: { lte: now } },
           data: { status: 'expired', respondedAt: now },
         });
-
-        // Bookings for later whose search should start now. If the customer
-        // is already on another ride by then, this one cannot go ahead.
-        const starting = await tx.ride.findMany({
-          where: { status: 'scheduled', dispatchAt: { lte: now } },
-          select: {
-            id: true,
-            passengerId: true,
-            service: true,
-            driverId: true,
-            category: true,
-            scheduledAt: true,
-          },
-        });
-        for (const booking of starting) {
-          const busy = await tx.ride.count({
-            where: {
-              passengerId: booking.passengerId,
-              status: { in: ['requested', 'accepted', 'arrived', 'started'] },
-            },
-          });
-          if (busy) {
-            await tx.ride.update({
-              where: { id: booking.id },
-              data: {
-                status: 'expired',
-                cancelledBy: 'system',
-                cancelReason: 'You were on another ride at the booked time',
-                cancelledAt: now,
-              },
-            });
-            expiredRideIds.push(booking.id);
-            continue;
-          }
-          // A driver confirmed ahead of time gets the ride now, if they are
-          // online and free with a vehicle of the right type.
-          if (booking.driverId) {
-            const ready = await tx.$executeRaw`
-              UPDATE driver_presence SET "busy" = true, "updatedAt" = now()
-              WHERE "userId" = ${booking.driverId}::uuid AND "isOnline"
-                AND NOT "busy" AND "category" = ${booking.category}`;
-            const free =
-              ready > 0 &&
-              (await tx.ride.count({
-                where: {
-                  driverId: booking.driverId,
-                  status: { in: ['accepted', 'arrived', 'started'] },
-                },
-              })) === 0;
-            if (free) {
-              await tx.ride.update({
-                where: { id: booking.id },
-                data: { status: 'accepted', acceptedAt: now, requestedAt: now },
-              });
-              assigned.push({ rideId: booking.id, driverId: booking.driverId });
-              continue;
-            }
-            if (ready > 0) {
-              await tx.$executeRaw`
-                UPDATE driver_presence SET "busy" = false, "updatedAt" = now()
-                WHERE "userId" = ${booking.driverId}::uuid`;
-            }
-            // The confirmed driver may still be on their way online (they
-            // and the customer can call): keep waiting for them until close
-            // to the time; this check repeats every tick.
-            const waitUntil =
-              (booking.scheduledAt?.getTime() ?? now.getTime()) -
-              (booking.service === 'freight'
-                ? this.settings.freightReservedWaitUntilMinutes
-                : this.settings.rideReservedWaitUntilMinutes) *
-                60_000;
-            if (now.getTime() < waitUntil) continue;
-            // Not available: the booking goes to everyone nearby instead.
-            await tx.rideOffer.updateMany({
-              where: { rideId: booking.id, driverId: booking.driverId },
-              data: { status: 'declined', respondedAt: now },
-            });
-            released.push({ rideId: booking.id, driverId: booking.driverId });
-          }
-          await tx.ride.update({
-            where: { id: booking.id },
-            data: {
-              driverId: null,
-              vehicleId: null,
-              fare: null,
-              status: 'requested',
-              requestedAt: now,
-              nextExpandAt: new Date(
-                now.getTime() + this.offerTtlSeconds(booking) * 1000,
-              ),
-            },
-          });
-          dispatchedRideIds.push(booking.id);
-        }
 
         const due = await tx.ride.findMany({
           where: { status: 'requested', nextExpandAt: { lte: now } },
@@ -315,22 +218,6 @@ export class MatchingService
     );
     for (const rideId of expiredRideIds)
       this.events.emit('ride.expired', { rideId });
-    for (const { rideId, driverId } of assigned)
-      this.events.emit('ride.accepted', { rideId, driverId });
-    for (const { rideId, driverId } of released)
-      this.events.emit('ride.reservation_released', { rideId, driverId });
-    // Booked rides now looking for a driver: offer them like a new request.
-    for (const rideId of dispatchedRideIds) {
-      const ride = await this.prisma.ride.findUnique({ where: { id: rideId } });
-      if (ride?.status !== 'requested') continue;
-      await this.offerRide(ride);
-      this.events.emit('ride.requested', {
-        rideId,
-        passengerId: ride.passengerId,
-        category: ride.category,
-      });
-      this.events.emit('ride.dispatched', { rideId });
-    }
     return result;
   }
 
