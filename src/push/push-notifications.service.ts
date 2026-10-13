@@ -5,6 +5,8 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { Subscription } from 'rxjs';
+import { ConfigService } from '@nestjs/config';
+import { DEFAULT_TZ_OFFSET_MINUTES } from '../common/time.js';
 import { DomainEvents } from '../events/domain-events.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { DevicesService } from './devices.service.js';
@@ -14,6 +16,38 @@ import type { PushMessage } from './push.provider.js';
 const short = (address: string) => address.split(',')[0].trim();
 const rs = (n: number) => `Rs ${n.toLocaleString('en-PK')}`;
 
+// "today 8:30 PM", "tomorrow 8:30 AM", "Fri 17 Oct, 8:30 AM" in business
+// time (Pakistan by default).
+export function bookingTime(
+  at: Date,
+  tzOffsetMinutes: number,
+  now = new Date(),
+): string {
+  const shift = (d: Date) => new Date(d.getTime() + tzOffsetMinutes * 60_000);
+  const local = shift(at);
+  const today = shift(now);
+  const dayIndex = (d: Date) =>
+    Math.floor(
+      Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) /
+        86_400_000,
+    );
+  const time = local.toLocaleTimeString('en-US', {
+    timeZone: 'UTC',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+  const days = dayIndex(local) - dayIndex(today);
+  if (days === 0) return `today ${time}`;
+  if (days === 1) return `tomorrow ${time}`;
+  const date = local.toLocaleDateString('en-GB', {
+    timeZone: 'UTC',
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+  });
+  return `${date}, ${time}`;
+}
+
 // Turns what happened (domain events) into push notifications for people
 // whose app may be closed. The socket still updates an open app; Android
 // shows nothing for a push while the app is in front, so there is no double.
@@ -22,11 +56,18 @@ export class PushNotificationsService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(PushNotificationsService.name);
   private subscription?: Subscription;
 
+  private readonly tzOffset: number;
+
   constructor(
     private readonly events: DomainEvents,
     private readonly devices: DevicesService,
     private readonly prisma: PrismaService,
-  ) {}
+    config: ConfigService,
+  ) {
+    this.tzOffset = Number(
+      config.get('BUSINESS_TZ_OFFSET_MINUTES') ?? DEFAULT_TZ_OFFSET_MINUTES,
+    );
+  }
 
   onModuleInit() {
     this.subscription = this.events.on().subscribe((event) => {
@@ -41,6 +82,14 @@ export class PushNotificationsService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async handle(type: string, p: any) {
+    if (
+      type.startsWith('booking.') ||
+      type.startsWith('ride.reservation_') ||
+      type === 'ride.expired'
+    ) {
+      // A booking for later that expired is told apart inside.
+      if (await this.booking(type, p)) return;
+    }
     switch (type) {
       case 'ride.offer.created':
         return this.newRequest(p.rideId, p.driverId, p.expiresAt);
@@ -210,6 +259,146 @@ export class PushNotificationsService implements OnModuleInit, OnModuleDestroy {
       channel: 'general',
       tag: `ride-${rideId}`,
     });
+  }
+
+  // Ride Later. Returns false when the event is not about a booking (an
+  // ordinary ride that expired), so the usual message goes out instead.
+  private async booking(type: string, p: any): Promise<boolean> {
+    const ride = await this.prisma.ride.findUnique({
+      where: { id: p.rideId },
+      select: {
+        passengerId: true,
+        driverId: true,
+        scheduledAt: true,
+        service: true,
+        pickupAddress: true,
+        dropoffAddress: true,
+        fare: true,
+        offeredFare: true,
+        estimatedFare: true,
+        driver: { select: { name: true } },
+        vehicle: { select: { make: true, model: true, color: true } },
+      },
+    });
+    if (!ride?.scheduledAt) return false;
+    const when = bookingTime(ride.scheduledAt, this.tzOffset);
+    const route = `${short(ride.pickupAddress)} → ${short(ride.dropoffAddress)}`;
+    const driver = ride.driver?.name ?? 'Your driver';
+    const v = ride.vehicle;
+    const vehicle = v ? ` (${`${v.color} ${v.make} ${v.model}`.trim()})` : '';
+    const forPassenger = (title: string, body: string) =>
+      this.devices.notify([ride.passengerId], {
+        title,
+        body,
+        data: { type: 'booking', rideId: p.rideId, role: 'passenger' },
+        channel: 'general',
+        tag: `booking-${p.rideId}`,
+      });
+    const forDriver = (driverId: string, title: string, body: string) =>
+      this.devices.notify([driverId], {
+        title,
+        body,
+        data: { type: 'booking', rideId: p.rideId, role: 'driver' },
+        channel: 'general',
+        tag: `booking-${p.rideId}`,
+      });
+
+    switch (type) {
+      case 'booking.created':
+        if (!p.driverIds?.length) return true;
+        await this.devices.notify(p.driverIds, {
+          title: `New booking: ${when}`,
+          body: `${route} · ${rs(ride.offeredFare ?? ride.estimatedFare)}. Send your price.`,
+          data: { type: 'booking_job', rideId: p.rideId },
+          channel: 'general',
+          tag: `booking-${p.rideId}`,
+        });
+        return true;
+
+      case 'ride.reservation_confirmed':
+        await forDriver(
+          p.driverId,
+          'Booking confirmed',
+          `${when} · ${route}. Press Start on the day when you head to the pickup.`,
+        );
+        return true;
+
+      case 'ride.reservation_released':
+        if (p.by === 'passenger') {
+          await forDriver(
+            p.driverId,
+            'Booking taken back',
+            `The customer is looking for another driver for ${when}.`,
+          );
+        } else {
+          await forPassenger(
+            'Your driver gave up the booking',
+            `Other drivers can offer again for ${when}.`,
+          );
+        }
+        return true;
+
+      case 'ride.expired':
+        await forPassenger(
+          `No driver took your ${when} booking`,
+          'Book a ride now, or schedule again with a higher price.',
+        );
+        return true;
+
+      case 'booking.missed':
+        await forPassenger(
+          `${driver} did not come`,
+          'Book a ride now, or schedule again.',
+        );
+        await forDriver(
+          p.driverId,
+          'Booking missed',
+          `You did not start the ${route} booking. Missed bookings can stop you taking bookings.`,
+        );
+        return true;
+
+      case 'booking.reminder':
+        switch (p.kind) {
+          case 'no_driver_first':
+          case 'no_driver_second':
+            await forPassenger(
+              `No driver yet for ${when}`,
+              'Raise your price so more drivers offer, or book a ride now.',
+            );
+            break;
+          case 'evening_before':
+          case 'upcoming':
+            await forPassenger(
+              `Your ride ${when}`,
+              `${driver}${vehicle} is booked. ${route}.`,
+            );
+            if (ride.driverId) {
+              await forDriver(
+                ride.driverId,
+                `Booking ${when}`,
+                `${route} · ${rs(ride.fare ?? ride.estimatedFare)}. Press Start when you head out.`,
+              );
+            }
+            break;
+          case 'start_nudge':
+            if (ride.driverId) {
+              await forDriver(
+                ride.driverId,
+                `Time to start your ${when} booking`,
+                `Press Start and head to ${short(ride.pickupAddress)}.`,
+              );
+            }
+            break;
+          case 'not_started':
+            await forPassenger(
+              `${driver} has not started yet`,
+              'Call them, or get offers from other drivers.',
+            );
+            break;
+        }
+        return true;
+    }
+    return false;
   }
 
   private reviewed(p: {

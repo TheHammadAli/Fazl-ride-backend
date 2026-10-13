@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { DomainEvents } from '../events/domain-events.service.js';
-import { PushNotificationsService } from './push-notifications.service.js';
+import {
+  bookingTime,
+  PushNotificationsService,
+} from './push-notifications.service.js';
 import type { PushMessage } from './push.provider.js';
 
 // Which events become which notifications, with the database and Firebase
@@ -37,10 +40,12 @@ function setup(ride: Record<string, unknown> = {}) {
     },
     user: { findUnique: async () => ({ name: 'Sara' }) },
   };
+  const config = { get: () => undefined };
   const service = new PushNotificationsService(
     events,
     devices as never,
     prisma as never,
+    config as never,
   );
   service.onModuleInit();
   const settle = () => new Promise((r) => setTimeout(r, 0));
@@ -135,5 +140,67 @@ describe('PushNotificationsService', () => {
     await settle();
     expect(sent[0].message.title).toBe('Top-up not approved');
     expect(sent[0].message.body).toBe('No transfer found');
+  });
+
+  it('tells drivers near a new booking, with the time', async () => {
+    const tomorrow = new Date(Date.now() + 24 * 3_600_000);
+    const { events, sent, settle } = setup({ scheduledAt: tomorrow });
+    events.emit('booking.created', { rideId: 'b1', driverIds: ['d1', 'd2'] });
+    await settle();
+    expect(sent[0].to).toEqual(['d1', 'd2']);
+    expect(sent[0].message.title).toMatch(/^New booking: tomorrow /);
+    expect(sent[0].message.data).toEqual({ type: 'booking_job', rideId: 'b1' });
+  });
+
+  it('warns the customer when nobody has offered yet', async () => {
+    const soon = new Date(Date.now() + 3_600_000);
+    const { events, sent, settle } = setup({ scheduledAt: soon });
+    events.emit('booking.reminder', { rideId: 'b1', kind: 'no_driver_first' });
+    await settle();
+    expect(sent[0].to).toEqual(['p1']);
+    expect(sent[0].message.title).toMatch(/^No driver yet for /);
+  });
+
+  it('says a booking expired differently from a ride', async () => {
+    const past = new Date(Date.now() - 60_000);
+    const booking = setup({ scheduledAt: past });
+    booking.events.emit('ride.expired', { rideId: 'b1' });
+    await booking.settle();
+    expect(booking.sent[0].message.title).toMatch(/^No driver took your /);
+
+    const ride = setup();
+    ride.events.emit('ride.expired', { rideId: 'r1' });
+    await ride.settle();
+    expect(ride.sent[0].message.title).toBe('No driver found');
+  });
+
+  it('tells both people when the driver never started', async () => {
+    const { events, sent, settle } = setup({
+      scheduledAt: new Date(Date.now() - 3_600_000),
+      driverId: 'd1',
+    });
+    events.emit('booking.missed', {
+      rideId: 'b1',
+      driverId: 'd1',
+      passengerId: 'p1',
+    });
+    await settle();
+    expect(sent.map((s) => s.to[0])).toEqual(['p1', 'd1']);
+    expect(sent[0].message.title).toBe('Ali did not come');
+  });
+});
+
+describe('bookingTime', () => {
+  const now = new Date('2026-10-14T05:00:00Z'); // 10:00 AM in Pakistan
+  it('says today, tomorrow, or the date', () => {
+    expect(bookingTime(new Date('2026-10-14T15:30:00Z'), 300, now)).toBe(
+      'today 8:30 PM',
+    );
+    expect(bookingTime(new Date('2026-10-15T03:30:00Z'), 300, now)).toBe(
+      'tomorrow 8:30 AM',
+    );
+    expect(bookingTime(new Date('2026-10-17T03:30:00Z'), 300, now)).toBe(
+      'Sat 17 Oct, 8:30 AM',
+    );
   });
 });
