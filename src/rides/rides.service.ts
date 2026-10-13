@@ -560,14 +560,16 @@ export class RidesService {
     rideId: string,
     changes: { amount?: number; autoAccept?: boolean },
   ) {
+    // A ride waiting for bids, or a booking for later nobody confirmed yet.
+    const open = {
+      OR: [
+        { status: 'requested' as const, negotiable: true },
+        { status: 'scheduled' as const, driverId: null },
+      ],
+    };
     if (changes.amount != null) {
       const ride = await this.prisma.ride.findFirst({
-        where: {
-          id: rideId,
-          passengerId,
-          status: 'requested',
-          negotiable: true,
-        },
+        where: { id: rideId, passengerId, ...open },
         select: { estimatedFare: true },
       });
       if (!ride) {
@@ -578,7 +580,7 @@ export class RidesService {
       this.assertAboveMinimumFare(changes.amount, ride.estimatedFare);
     }
     const result = await this.prisma.ride.updateMany({
-      where: { id: rideId, passengerId, status: 'requested', negotiable: true },
+      where: { id: rideId, passengerId, ...open },
       data: {
         ...(changes.amount != null && { offeredFare: changes.amount }),
         ...(changes.autoAccept != null && { autoAccept: changes.autoAccept }),
@@ -589,7 +591,20 @@ export class RidesService {
         'This ride is not waiting for a price update',
       );
     }
-    this.events.emit('ride.offer.updated', { rideId });
+    const booking = await this.prisma.ride.findUnique({
+      where: { id: rideId },
+    });
+    if (booking?.status === 'scheduled') {
+      // A higher price for a booking: drivers near it hear about it again.
+      if (changes.amount != null) {
+        this.events.emit('booking.price_raised', {
+          rideId,
+          driverIds: await this.reservations.driversFor(booking),
+        });
+      }
+    } else {
+      this.events.emit('ride.offer.updated', { rideId });
+    }
     return this.get(passengerId, rideId);
   }
 

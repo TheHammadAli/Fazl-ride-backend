@@ -305,9 +305,13 @@ export class PushNotificationsService implements OnModuleInit, OnModuleDestroy {
 
     switch (type) {
       case 'booking.created':
+      case 'booking.price_raised':
         if (!p.driverIds?.length) return true;
         await this.devices.notify(p.driverIds, {
-          title: `New booking: ${when}`,
+          title:
+            type === 'booking.created'
+              ? `New booking: ${when}`
+              : `Price raised: ${when}`,
           body: `${route} · ${rs(ride.offeredFare ?? ride.estimatedFare)}. Send your price.`,
           data: { type: 'booking_job', rideId: p.rideId },
           channel: 'general',
