@@ -7,6 +7,20 @@ export function commissionFor(fare: number, percent: number): number {
   return Math.min(fare, Math.round((fare * percent) / 100));
 }
 
+// A driver's first [freeRides] completed trips carry no commission;
+// [completedBefore] counts the ones finished before this one.
+export function isFreeRide(
+  completedBefore: number,
+  freeRides: number,
+): boolean {
+  return completedBefore < freeRides;
+}
+
+// How many commission-free trips a driver still has.
+export function freeRidesLeft(completed: number, freeRides: number): number {
+  return Math.max(0, freeRides - completed);
+}
+
 // A ride paid "by wallet": the balance covers what it can and the rest is
 // collected in cash, so a low balance never leaves a ride unpaid.
 export function splitPayment(

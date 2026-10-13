@@ -161,6 +161,12 @@ export class UpdateWalletSettingsDto {
 
   @IsOptional()
   @IsInt()
+  @Min(0)
+  @Max(1000)
+  freeRidesPerDriver?: number;
+
+  @IsOptional()
+  @IsInt()
   @Min(-100_000)
   @Max(0)
   driverMinBalance?: number;

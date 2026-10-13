@@ -2,9 +2,26 @@ import { describe, expect, it } from 'vitest';
 import {
   commissionFor,
   duesToClear,
+  freeRidesLeft,
   hasDues,
+  isFreeRide,
   splitPayment,
 } from './wallet-rules.js';
+
+describe('free rides', () => {
+  it('makes the first N trips free, then charges', () => {
+    expect(isFreeRide(0, 10)).toBe(true);
+    expect(isFreeRide(9, 10)).toBe(true);
+    expect(isFreeRide(10, 10)).toBe(false);
+    expect(isFreeRide(0, 0)).toBe(false);
+  });
+
+  it('counts what is left, never below zero', () => {
+    expect(freeRidesLeft(3, 10)).toBe(7);
+    expect(freeRidesLeft(12, 10)).toBe(0);
+    expect(freeRidesLeft(0, 0)).toBe(0);
+  });
+});
 
 describe('commissionFor', () => {
   it('takes the percentage, rounded to whole rupees', () => {

@@ -31,7 +31,9 @@ import type {
 import {
   commissionFor,
   duesToClear,
+  freeRidesLeft,
   hasDues,
+  isFreeRide,
   splitPayment,
 } from './wallet-rules.js';
 
@@ -191,7 +193,17 @@ export class WalletService {
     },
   ): Promise<{ walletPaid: number; commission: number }> {
     const settings = await this.settings(tx);
-    const commission = commissionFor(ride.fare, settings.commissionPercent);
+    // This ride is already marked completed in the same transaction.
+    const completedBefore = await tx.ride.count({
+      where: {
+        driverId: ride.driverId,
+        status: 'completed',
+        id: { not: ride.id },
+      },
+    });
+    const commission = isFreeRide(completedBefore, settings.freeRidesPerDriver)
+      ? 0
+      : commissionFor(ride.fare, settings.commissionPercent);
     let walletPaid = 0;
     if (ride.paymentMethod === 'wallet') {
       const locked = await tx.$queryRaw<{ balance: number }[]>`
@@ -335,17 +347,23 @@ export class WalletService {
   // ---- The person's own wallet --------------------------------------------
 
   async summary(userId: string) {
-    const [settings, balance, pending] = await Promise.all([
+    const [settings, balance, pending, driven] = await Promise.all([
       this.settings(),
       this.balanceOf(userId),
       this.prisma.walletRequest.findMany({
         where: { userId, status: 'pending' },
         orderBy: { createdAt: 'desc' },
       }),
+      this.prisma.ride.count({
+        where: { driverId: userId, status: 'completed' },
+      }),
     ]);
     return {
       currency: 'PKR',
       balance,
+      // Drivers: trips left before commission starts (0 = it applies).
+      freeRidesLeft: freeRidesLeft(driven, settings.freeRidesPerDriver),
+      commissionPercent: settings.commissionPercent,
       // Drivers: below this they cannot go online.
       minBalance: settings.driverMinBalance,
       hasDues: hasDues(balance, settings.driverMinBalance),
