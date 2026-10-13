@@ -18,6 +18,7 @@ import {
 import { BookingSettingsService } from './booking-settings.service.js';
 import { RideSettings } from './rides.settings.js';
 import { BOOKING_STRIKE } from './reservations.service.js';
+import { SchedulesService } from './schedules.service.js';
 
 const SWEEPER_LOCK_ID = 727_003;
 const TICK_MS = 30_000;
@@ -41,6 +42,7 @@ export class BookingSweeperService
     private readonly cancellations: CancellationsService,
     private readonly events: DomainEvents,
     private readonly rideSettings: RideSettings,
+    private readonly schedules: SchedulesService,
     config: ConfigService,
   ) {
     this.tzOffset = Number(
@@ -194,6 +196,9 @@ export class BookingSweeperService
     for (const rideId of expired) this.events.emit('ride.expired', { rideId });
     for (const m of missed) this.events.emit('booking.missed', m);
     for (const r of reminders) this.events.emit('booking.reminder', r);
-    return { ...result, expired, missed, reminders };
+    // Frequent traveler: each regular trip's next bookings. Safe on several
+    // instances: a booking is unique per schedule and time.
+    const scheduled = result.skipped ? 0 : await this.schedules.createDue(now);
+    return { ...result, expired, missed, reminders, scheduled };
   }
 }

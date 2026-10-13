@@ -29,4 +29,7 @@ export class UpdateBookingSettingsDto {
   @IsOptional() @IsInt() @Min(1) @Max(50) noShowLimit?: number;
   @IsOptional() @IsInt() @Min(1) @Max(365) noShowWindowDays?: number;
   @IsOptional() @IsInt() @Min(0) @Max(365) noShowBlockDays?: number;
+
+  @IsOptional() @IsInt() @Min(2) @Max(72) scheduleAheadHours?: number;
+  @IsOptional() @IsInt() @Min(1) @Max(20) maxSchedules?: number;
 }

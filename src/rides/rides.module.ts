@@ -22,6 +22,8 @@ import { FreightController } from './freight.controller.js';
 import { AdminBookingSettingsController } from './admin-booking-settings.controller.js';
 import { BookingSettingsService } from './booking-settings.service.js';
 import { BookingSweeperService } from './booking-sweeper.service.js';
+import { SchedulesController } from './schedules.controller.js';
+import { SchedulesService } from './schedules.service.js';
 import { FreightService } from './freight.service.js';
 import { ReservationsService } from './reservations.service.js';
 
@@ -37,6 +39,7 @@ import { ReservationsService } from './reservations.service.js';
   ],
   controllers: [
     AdminBookingSettingsController,
+    SchedulesController,
     RidesController,
     DriverRidesController,
     AdminFaresController,
@@ -45,6 +48,7 @@ import { ReservationsService } from './reservations.service.js';
   ],
   providers: [
     BookingSettingsService,
+    SchedulesService,
     BookingSweeperService,
     FaresService,
     RidesService,

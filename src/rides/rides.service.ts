@@ -79,7 +79,12 @@ export class RidesService {
 
   // Creates the request and immediately offers it to the nearest drivers (or,
   // in bidding mode, broadcasts it to everyone in range).
-  async request(passengerId: string, dto: RequestRideDto) {
+  // `scheduleId`: made by a Frequent traveler schedule (Ride Later only).
+  async request(
+    passengerId: string,
+    dto: RequestRideDto,
+    opts: { scheduleId?: string } = {},
+  ) {
     await this.cancellations.assertNotBlocked(passengerId, 'passenger');
     const category = await this.vehicleCategories.findActive(dto.category);
     if (!category) {
@@ -155,6 +160,7 @@ export class RidesService {
           ...(schedule && {
             status: 'scheduled' as const,
             scheduledAt: schedule.scheduledAt,
+            scheduleId: opts.scheduleId,
             // Never searched by the sweeper: drivers offer ahead of time.
             nextExpandAt: schedule.expiresAt,
           }),
@@ -192,6 +198,19 @@ export class RidesService {
     // offer on; nobody gets it automatically.
     if (schedule) {
       const driverIds = await this.reservations.driversFor(ride);
+      // A regular trip: the driver who took it last time hears first.
+      if (opts.scheduleId) {
+        const last = await this.prisma.rideSchedule.findUnique({
+          where: { id: opts.scheduleId },
+          select: { lastDriverId: true },
+        });
+        const regular = last?.lastDriverId;
+        if (regular) {
+          const at = driverIds.indexOf(regular);
+          if (at >= 0) driverIds.splice(at, 1);
+          driverIds.unshift(regular);
+        }
+      }
       this.events.emit('booking.created', { rideId: ride.id, driverIds });
       return {
         ...(await this.reservations.present(ride)),
