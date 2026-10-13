@@ -253,3 +253,11 @@ Careem Pay / inDrive / Bykea style. Module `src/wallet/` (`WalletService`, `Admi
 - Realtime: `wallet.changed` domain event -> socket `wallet:update {balance}` to that user.
 - Defaults: commission 0%, min balance -500, top-up 100-50,000, withdrawal min 1,000, change max 500, wallet payments on.
 
+
+## Push notifications (2026-10-12, FCM, Android first)
+Firebase project `fazl-drive` (separate from FAZL's market app project, on purpose: a service account can send to every app in its project). Module `src/push/`, migration `20261012170000_device_tokens`.
+- `device_tokens` (token is the key; a token moves to whoever signs in on that phone last). `POST devices {token, platform}` (JWT), `DELETE devices {token}` (the app calls it before signing out).
+- `PushProvider` adapter, bound to `FcmPushProvider` (firebase-admin). Credentials: `FIREBASE_SERVICE_ACCOUNT` env = the service account JSON (raw or base64). Unset = push off with one warning; nothing else breaks. Dead tokens Firebase reports are deleted.
+- `PushNotificationsService` only listens to `DomainEvents` (no module knows about push): ride request to driver (channel `ride_requests`, TTL = until the offer expires, so a stale request never rings), new bid, driver found / arrived / trip completed / driver cancelled / no driver found to the passenger, passenger cancelled to the driver, chat message (title = sender's name), driver put offline, wallet top-up/withdrawal reviewed (`wallet.request_reviewed`), change received (`wallet.change_received`). Every message carries `data.type` (+ `rideId`, `role`) that the app maps to a screen.
+- Android shows nothing for a push while the app is in front; the socket covers that case.
+- iOS: needs the iOS app added to the Firebase project, `GoogleService-Info.plist` and an APNs key (Apple Developer account). Note the iOS bundle id is `com.fazldrive`, Android's is `com.fazl_drive`.
