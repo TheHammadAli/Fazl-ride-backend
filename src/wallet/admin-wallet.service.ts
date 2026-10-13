@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { AuditService } from '../audit/audit.service.js';
+import { DomainEvents } from '../events/domain-events.service.js';
 import { decodeCursor, encodeCursor } from '../common/cursor.js';
 import type { Prisma } from '../generated/prisma/client.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -27,6 +28,7 @@ export class AdminWalletService {
     private readonly prisma: PrismaService,
     private readonly wallet: WalletService,
     private readonly audit: AuditService,
+    private readonly events: DomainEvents,
   ) {}
 
   // Numbers for the top of the admin's wallet page.
@@ -134,6 +136,12 @@ export class AdminWalletService {
         });
       }
     });
+    this.events.emit('wallet.request_reviewed', {
+      userId: request.userId,
+      kind: request.kind,
+      status: 'approved',
+      amount: request.amount,
+    });
     await this.audit.log(
       adminId,
       `wallet.${request.kind}.approve`,
@@ -163,6 +171,13 @@ export class AdminWalletService {
       if (request.kind === 'withdrawal') {
         await this.wallet.release(tx, request, adminId);
       }
+    });
+    this.events.emit('wallet.request_reviewed', {
+      userId: request.userId,
+      kind: request.kind,
+      status: 'rejected',
+      amount: request.amount,
+      reason: reason.trim(),
     });
     await this.audit.log(
       adminId,

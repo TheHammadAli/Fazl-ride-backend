@@ -280,6 +280,15 @@ export class WalletService {
       throw new ConflictException('Change was already added for this ride');
     }
     this.notify(driverId, ride.passengerId);
+    const driver = await this.prisma.user.findUnique({
+      where: { id: driverId },
+      select: { name: true },
+    });
+    this.events.emit('wallet.change_received', {
+      userId: ride.passengerId,
+      amount: dto.amount,
+      driverName: driver?.name ?? null,
+    });
     return {
       rideId: ride.id,
       amount: dto.amount,
