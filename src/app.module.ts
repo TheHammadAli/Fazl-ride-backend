@@ -26,6 +26,7 @@ import { StorageModule } from './storage/storage.module.js';
 import { UsersModule } from './users/users.module.js';
 import { VehicleCategoriesModule } from './vehicle-categories/vehicle-categories.module.js';
 import { WalletModule } from './wallet/wallet.module.js';
+import { PushModule } from './push/push.module.js';
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { WalletModule } from './wallet/wallet.module.js';
     DriversModule,
     PresenceModule,
     WalletModule,
+    PushModule,
     RidesModule,
     ChatModule,
     RealtimeModule,
