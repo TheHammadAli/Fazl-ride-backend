@@ -115,6 +115,8 @@ model User {
   walletEntries     WalletTransaction[]
   walletRequests    WalletRequest[]
   devices           DeviceToken[]
+  savedPlaces       SavedPlace[]
+  rideSchedules     RideSchedule[]
 
   @@map("users")
 }
@@ -391,6 +393,8 @@ model Ride {
   scheduledAt     DateTime?
   // The confirmed driver never started the booking.
   noShow          Boolean   @default(false)
+  // Made by a Frequent traveler schedule (one booking per day it runs).
+  scheduleId      String?   @db.Uuid
   // 'ride' or 'freight'. A freight booking goes to every nearby driver of
   // its vehicle type, who accept or counter the offered fare.
   service         String     @default("ride")
@@ -482,6 +486,7 @@ model Ride {
   earningEntries  DriverEarning[]
   messages        RideMessage[]
   reminders       BookingReminder[]
+  schedule        RideSchedule?     @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
 
   @@index([passengerId, status])
   @@index([driverId, status])
@@ -489,6 +494,7 @@ model Ride {
   @@index([category])
   @@index([tripType])
   @@index([status, scheduledAt])
+  @@unique([scheduleId, scheduledAt])
   @@map("rides")
 }
 
@@ -914,6 +920,10 @@ model BookingSettings {
   noShowLimit          Int     @default(3)
   noShowWindowDays     Int     @default(30)
   noShowBlockDays      Int     @default(7)
+  // Frequent traveler: each day's booking is made this many hours ahead,
+  // and a customer can keep this many schedules.
+  scheduleAheadHours   Int     @default(24)
+  maxSchedules         Int     @default(5)
   updatedAt            DateTime @updatedAt
 
   @@map("booking_settings")
@@ -929,4 +939,72 @@ model BookingReminder {
 
   @@id([rideId, kind])
   @@map("booking_reminders")
+}
+
+// A place a customer keeps (Home, Work, or their own name) to book in one tap.
+model SavedPlace {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  // home, work or other. At most one home and one work.
+  kind      String
+  label     String
+  lat       Float
+  lng       Float
+  address   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("saved_places")
+}
+
+// Frequent traveler: the same trip on chosen days at the same time (office,
+// school). A booking for later is made for each day a while ahead and goes
+// through the usual Ride Later flow (drivers offer, the customer confirms).
+model RideSchedule {
+  id          String   @id @default(uuid()) @db.Uuid
+  passengerId String   @db.Uuid
+  name        String?
+  pickupLat      Float
+  pickupLng      Float
+  pickupAddress  String
+  dropoffLat     Float
+  dropoffLng     Float
+  dropoffAddress String
+  category    String
+  tripType    TripType @default(within_city)
+  // Days it runs, 1 = Monday ... 7 = Sunday.
+  days        Int[]
+  // Minutes after midnight, business time (8:30 = 510).
+  timeMinutes Int
+  // What the customer offers each day; null = the suggested price.
+  offeredFare Int?
+  paymentMethod PaymentMethod @default(cash)
+  active      Boolean  @default(true)
+  // Driver confirmed last time: told first about the next day's booking.
+  lastDriverId String? @db.Uuid
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  passenger User              @relation(fields: [passengerId], references: [id], onDelete: Cascade)
+  rides     Ride[]
+  skips     RideScheduleSkip[]
+
+  @@index([active])
+  @@index([passengerId])
+  @@map("ride_schedules")
+}
+
+// A day a schedule should not run (holiday), as a business-time date.
+model RideScheduleSkip {
+  scheduleId String   @db.Uuid
+  date       String
+  createdAt  DateTime @default(now())
+
+  schedule RideSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  @@id([scheduleId, date])
+  @@map("ride_schedule_skips")
 }
