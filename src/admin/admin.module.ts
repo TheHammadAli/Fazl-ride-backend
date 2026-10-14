@@ -1,3 +1,4 @@
+import { VehicleCategoriesModule } from '../vehicle-categories/vehicle-categories.module.js';
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module.js';
 import { DriversModule } from '../drivers/drivers.module.js';
@@ -5,7 +6,7 @@ import { AdminController } from './admin.controller.js';
 import { AdminService } from './admin.service.js';
 
 @Module({
-  imports: [AuthModule, DriversModule],
+  imports: [AuthModule, DriversModule, VehicleCategoriesModule],
   controllers: [AdminController],
   providers: [AdminService],
 })

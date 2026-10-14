@@ -24,6 +24,7 @@ import {
 import { UploadDocumentDto } from './dto/document.dto.js';
 import {
   ApplyDriverDto,
+  RideTypesDto,
   UpdateDriverProfileDto,
   UpdateVehicleDto,
   VehicleDto,
@@ -57,6 +58,16 @@ export class DriversController {
   @HttpCode(200)
   submit(@CurrentUser() user: AuthUser) {
     return this.drivers.submit(user.id);
+  }
+
+  // Ride types (tiers) this vehicle gets requests for: switch some off.
+  @Patch('me/vehicles/:id/ride-types')
+  setRideTypes(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RideTypesDto,
+  ) {
+    return this.drivers.setRideTypes(user.id, id, dto.off);
   }
 
   @Patch('me/vehicles/:id')

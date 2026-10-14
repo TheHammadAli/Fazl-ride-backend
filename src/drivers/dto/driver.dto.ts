@@ -1,11 +1,14 @@
 import { PartialType } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  IsArray,
+  IsBoolean,
   IsDefined,
   IsISO8601,
   IsInt,
-  IsOptional,
   IsNotEmpty,
+  IsOptional,
   IsString,
   Matches,
   Max,
@@ -78,6 +81,11 @@ export class VehicleDto {
     message: 'plateNumber must look like a Pakistani plate, e.g. LEA-1234',
   })
   plateNumber: string;
+
+  // The driver says whether the AC works; an admin checks it for AC tiers.
+  @IsOptional()
+  @IsBoolean()
+  hasAc?: boolean;
 }
 
 export class ApplyDriverDto {
@@ -153,3 +161,12 @@ export class UpdateDriverProfileDto {
 
 // Correcting a vehicle before it is approved; only the fields given change.
 export class UpdateVehicleDto extends PartialType(VehicleDto) {}
+
+// The ride types the driver does not want requests for (only ones the
+// vehicle may take; at least one stays on).
+export class RideTypesDto {
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  off: string[];
+}

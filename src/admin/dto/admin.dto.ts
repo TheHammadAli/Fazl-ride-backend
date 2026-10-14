@@ -96,3 +96,13 @@ export class RejectDriverDto extends RejectDto {
   @Type(() => ReviewIssueDto)
   issues?: ReviewIssueDto[];
 }
+
+// Ride tiers a vehicle is approved for (keys of tiers of its own type).
+// Left out on approval, the tiers the vehicle meets are used.
+export class VehicleTiersDto {
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  tiers?: string[];
+}

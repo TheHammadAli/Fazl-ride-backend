@@ -9,6 +9,7 @@ import { Prisma } from '../generated/prisma/client.js';
 import { DomainEvents } from '../events/domain-events.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { VehicleCategoriesService } from '../vehicle-categories/vehicle-categories.service.js';
+import { VehicleTiersService } from '../vehicle-categories/vehicle-tiers.service.js';
 import { DriverDocumentsService } from './driver-documents.service.js';
 import { DriverIdentityService } from './driver-identity.service.js';
 import {
@@ -39,12 +40,13 @@ export class DriversService {
     private readonly identity: DriverIdentityService,
     private readonly approval: DriverApprovalService,
     private readonly events: DomainEvents,
+    private readonly tiers: VehicleTiersService,
   ) {}
 
   // "Become a Driver": creates a pending profile plus the first vehicle.
   // A rejected applicant may apply again; anyone else already has a profile.
   async apply(userId: string, dto: ApplyDriverDto) {
-    await this.vehicleCategories.assertActive(dto.vehicle.category);
+    await this.vehicleCategories.assertBaseType(dto.vehicle.category);
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
       select: { name: true, avatarKey: true, phone: true },
@@ -134,9 +136,17 @@ export class DriversService {
     });
     if (!profile) throw new NotFoundException('No driver application found');
     // Tells the app what is still left before admin review can succeed.
-    const { documents, user, ...rest } = profile;
+    const { documents, user, vehicles, ...rest } = profile;
     return {
       ...rest,
+      // Each with the ride types (tiers) it may take and which are on.
+      vehicles: await Promise.all(
+        vehicles.map(async (v) => ({
+          ...v,
+          rideTypes:
+            v.status === 'approved' ? await this.tiers.rideTypesFor(v) : [],
+        })),
+      ),
       missingDocuments: this.requirements.missing(profile.vehicles, documents),
       missingProfile: findMissingProfile(user, profile),
     };
@@ -293,7 +303,7 @@ export class DriversService {
     vehicleId: string,
     dto: UpdateVehicleDto,
   ) {
-    if (dto.category) await this.vehicleCategories.assertActive(dto.category);
+    if (dto.category) await this.vehicleCategories.assertBaseType(dto.category);
     const profile = await this.prisma.driverProfile.findUnique({
       where: { userId },
       include: { vehicles: { select: { id: true, status: true } } },
@@ -344,7 +354,7 @@ export class DriversService {
   }
 
   async addVehicle(userId: string, dto: VehicleDto) {
-    await this.vehicleCategories.assertActive(dto.category);
+    await this.vehicleCategories.assertBaseType(dto.category);
     const profile = await this.prisma.driverProfile.findUnique({
       where: { userId },
     });
@@ -359,6 +369,26 @@ export class DriversService {
     } catch (error: any) {
       throw this.uniqueConflict(error) ?? error;
     }
+  }
+
+  // The driver switches ride types off (or on again) for one vehicle, e.g.
+  // a Business car that does not want Economy requests.
+  async setRideTypes(userId: string, vehicleId: string, off: string[]) {
+    const vehicle = await this.prisma.vehicle.findFirst({
+      where: { id: vehicleId, driverProfile: { userId }, status: 'approved' },
+    });
+    if (!vehicle) throw new NotFoundException('Vehicle not found');
+    const allowed = (await this.tiers.rideTypesFor(vehicle)).map((t) => t.key);
+    const tiersOff = [...new Set(off)].filter((k) => allowed.includes(k));
+    if (tiersOff.length >= allowed.length) {
+      throw new BadRequestException('Keep at least one ride type on');
+    }
+    await this.prisma.vehicle.update({
+      where: { id: vehicleId },
+      data: { tiersOff },
+    });
+    await this.tiers.refreshOnline({ vehicleId });
+    return this.getMine(userId);
   }
 
   // A driver always keeps at least one vehicle. Its registration file goes too.
@@ -391,6 +421,7 @@ export class DriversService {
       year: v.year,
       color: v.color,
       plateNumber: v.plateNumber,
+      hasAc: v.hasAc ?? false,
     };
   }
 

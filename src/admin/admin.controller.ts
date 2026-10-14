@@ -6,6 +6,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Put,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -23,6 +24,7 @@ import {
   ListVehiclesDto,
   RejectDriverDto,
   RejectDto,
+  VehicleTiersDto,
 } from './dto/admin.dto.js';
 
 // REST endpoints for FAZL's existing admin panel (no new admin UI is built).
@@ -116,8 +118,19 @@ export class AdminController {
   approveVehicle(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthUser,
+    @Body() dto: VehicleTiersDto,
   ) {
-    return this.admin.setVehicleStatus(id, 'approved', user.id);
+    return this.admin.setVehicleStatus(id, 'approved', user.id, dto.tiers);
+  }
+
+  // Which ride tiers (AC, Business...) the vehicle is approved for.
+  @Put('vehicles/:id/tiers')
+  setVehicleTiers(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthUser,
+    @Body() dto: VehicleTiersDto,
+  ) {
+    return this.admin.setVehicleTiers(id, dto.tiers ?? [], user.id);
   }
 
   @Post('vehicles/:id/reject')

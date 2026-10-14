@@ -1,3 +1,5 @@
+import { VehicleTiersService } from '../vehicle-categories/vehicle-tiers.service.js';
+import { isOpenTier } from '../vehicle-categories/vehicle-tiers.js';
 import {
   BadRequestException,
   ForbiddenException,
@@ -40,6 +42,7 @@ export class AdminService {
     private readonly audit: AuditService,
     private readonly events: DomainEvents,
     private readonly storage: StorageService,
+    private readonly tiers: VehicleTiersService,
   ) {}
 
   async listUsers({ page, limit, search }: ListUsersDto) {
@@ -327,6 +330,12 @@ export class AdminService {
     const items = await Promise.all(
       rows.map(async ({ documents, categoryRef, driverProfile, ...v }) => ({
         ...v,
+        // Tiers it meets (ticked for the admin) and every tier of its type.
+        suggestedTiers: await this.tiers.suggestFor(v),
+        availableTiers: (await this.tiers.tiersOf(v.category)).map((c) => ({
+          key: c.key,
+          open: isOpenTier(c),
+        })),
         categoryLabel: categoryRef.label,
         service: categoryRef.service,
         iconKey: categoryRef.iconKey,
@@ -337,8 +346,12 @@ export class AdminService {
           name: driverProfile.user.name,
           phone: driverProfile.user.phone,
         },
+        // A photo that can not be signed shows as missing, not as an error
+        // for the whole list.
         photoUrl: documents[0]
-          ? await this.storage.createSignedUrl(documents[0].storageKey, 10 * 60)
+          ? await this.storage
+              .createSignedUrl(documents[0].storageKey, 10 * 60)
+              .catch(() => null)
           : null,
       })),
     );
@@ -351,6 +364,7 @@ export class AdminService {
     id: string,
     status: 'approved' | 'rejected',
     actorId: string,
+    tiers?: string[],
   ) {
     const vehicle = await this.prisma.vehicle.findUnique({
       where: { id },
@@ -368,16 +382,40 @@ export class AdminService {
         });
       }
     }
-    const updated = await this.prisma.vehicle.update({
+    if (tiers) await this.tiers.assertTiersOf(vehicle.category, tiers);
+    await this.prisma.vehicle.update({
       where: { id },
-      data: { status },
+      data: { status, ...(tiers && { tiers }) },
     });
+    // Approved without a choice: the tiers it meets.
+    if (status === 'approved' && !tiers) {
+      await this.tiers.applySuggestion([id]);
+    }
     await this.audit.log(
       actorId,
       `vehicle.${status === 'approved' ? 'approve' : 'reject'}`,
       'vehicle',
       id,
+      tiers ? { tiers } : undefined,
     );
+    await this.tiers.refreshOnline({ vehicleId: id });
+    return this.prisma.vehicle.findUniqueOrThrow({ where: { id } });
+  }
+
+  // The admin changes which tiers (AC, Business...) a vehicle may take.
+  async setVehicleTiers(id: string, tiers: string[], actorId: string) {
+    const vehicle = await this.prisma.vehicle.findUnique({ where: { id } });
+    if (!vehicle) throw new NotFoundException('Vehicle not found');
+    await this.tiers.assertTiersOf(vehicle.category, tiers);
+    const updated = await this.prisma.vehicle.update({
+      where: { id },
+      data: { tiers: [...new Set(tiers)] },
+    });
+    await this.audit.log(actorId, 'vehicle.tiers', 'vehicle', id, {
+      before: vehicle.tiers,
+      after: updated.tiers,
+    });
+    await this.tiers.refreshOnline({ vehicleId: id });
     return updated;
   }
 }

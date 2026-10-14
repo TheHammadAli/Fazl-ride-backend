@@ -1,3 +1,4 @@
+import { VehicleAlertsService } from './vehicle-alerts.service.js';
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module.js';
 import { AuditModule } from '../audit/audit.module.js';
@@ -26,6 +27,7 @@ import { DriversService } from './drivers.service.js';
     DriverRequirementsService,
     DriverApprovalService,
     DriverIdentityService,
+    VehicleAlertsService,
   ],
   exports: [
     DriverDocumentsService,

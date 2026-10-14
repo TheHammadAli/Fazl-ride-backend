@@ -1,3 +1,4 @@
+import { VehicleTiersService } from '../vehicle-categories/vehicle-tiers.service.js';
 import {
   BadRequestException,
   ConflictException,
@@ -28,6 +29,7 @@ export class DriverApprovalService {
     private readonly requirements: DriverRequirementsService,
     private readonly audit: AuditService,
     private readonly config: ConfigService,
+    private readonly tiers: VehicleTiersService,
   ) {}
 
   // actorId is the admin who approved, or null for the dev auto-approve
@@ -92,6 +94,12 @@ export class DriverApprovalService {
         create: { userId: profile.userId, role: Role.driver },
       }),
     ]);
+    // Newly approved vehicles get the tiers they meet (Business, AC...).
+    const vehicles = await this.prisma.vehicle.findMany({
+      where: { driverProfileId: profileId, status: 'approved' },
+      select: { id: true },
+    });
+    await this.tiers.applySuggestion(vehicles.map((v) => v.id));
     await this.audit.log(actorId, action, 'driver_profile', profileId);
   }
 
