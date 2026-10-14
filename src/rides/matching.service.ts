@@ -12,6 +12,8 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { RoutingProvider } from '../routing/routing.provider.js';
 import { RideSettings } from './rides.settings.js';
 import { WalletService } from '../wallet/wallet.service.js';
+import { LevelsService } from '../levels/levels.service.js';
+import { byPriority } from '../levels/level-rules.js';
 
 // Only one app instance runs a tick at a time (Postgres advisory lock), so the
 // sweeper stays correct if the API is scaled to several instances.
@@ -49,6 +51,7 @@ export class MatchingService
     private readonly events: DomainEvents,
     private readonly destinations: DestinationService,
     private readonly wallet: WalletService,
+    private readonly levels: LevelsService,
   ) {}
 
   onApplicationBootstrap() {
@@ -90,7 +93,12 @@ export class MatchingService
     );
     const pickupAt = { lat: ride.pickupLat, lng: ride.pickupLng };
     const dropoffAt = { lat: ride.dropoffLat, lng: ride.dropoffLng };
-    const chosen = candidates
+    // A driver's level can put them ahead of slightly nearer drivers.
+    const prioritised = byPriority(
+      candidates,
+      await this.levels.priorityFor(candidates.map((d) => d.userId)),
+    );
+    const chosen = prioritised
       .filter((d) => {
         const destination = destinations.get(d.userId);
         return (

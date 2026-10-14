@@ -5,6 +5,7 @@ import { EarningsModule } from '../earnings/earnings.module.js';
 import { PresenceModule } from '../presence/presence.module.js';
 import { VehicleCategoriesModule } from '../vehicle-categories/vehicle-categories.module.js';
 import { WalletModule } from '../wallet/wallet.module.js';
+import { LevelsModule } from '../levels/levels.module.js';
 import { AdminRidesController } from './admin-rides.controller.js';
 import { AdminRidesService } from './admin-rides.service.js';
 import { AdminFaresController } from './admin-fares.controller.js';
@@ -36,6 +37,7 @@ import { ReservationsService } from './reservations.service.js';
     RoutingModule,
     VehicleCategoriesModule,
     WalletModule,
+    LevelsModule,
   ],
   controllers: [
     AdminBookingSettingsController,
