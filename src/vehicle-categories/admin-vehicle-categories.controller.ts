@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../common/decorators/current-user.decorator.js';
 import type { AuthUser } from '../common/decorators/current-user.decorator.js';
@@ -11,6 +19,7 @@ import {
   UpdateVehicleCategoryDto,
 } from './dto/vehicle-category.dto.js';
 import { VehicleCategoriesService } from './vehicle-categories.service.js';
+import { VehicleTiersService } from './vehicle-tiers.service.js';
 
 // Lets an admin add a new vehicle type (e.g. "rickshaw") - and edit or
 // deactivate an existing one - without a code deploy. See
@@ -21,7 +30,10 @@ import { VehicleCategoriesService } from './vehicle-categories.service.js';
 @Roles(Role.admin, Role.super_admin)
 @Controller('admin/vehicle-categories')
 export class AdminVehicleCategoriesController {
-  constructor(private readonly categories: VehicleCategoriesService) {}
+  constructor(
+    private readonly categories: VehicleCategoriesService,
+    private readonly tiers: VehicleTiersService,
+  ) {}
 
   @Get()
   list() {
@@ -31,18 +43,26 @@ export class AdminVehicleCategoriesController {
   // Creates the category and its starting fare row together - a category
   // with no fare_configs row could never actually be booked.
   @Post()
-  create(@Body() dto: CreateVehicleCategoryDto, @CurrentUser() user: AuthUser) {
-    return this.categories.create(dto, user.id);
+  async create(
+    @Body() dto: CreateVehicleCategoryDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    const created = await this.categories.create(dto, user.id);
+    // A new open tier reaches drivers already online.
+    await this.tiers.refreshOnline({ base: created.parentKey ?? created.key });
+    return created;
   }
 
   // Categories are never deleted (rides/vehicles may already reference one) -
   // set `active: false` to retire it instead.
   @Patch(':key')
-  update(
+  async update(
     @Param('key') key: string,
     @Body() dto: UpdateVehicleCategoryDto,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.categories.update(key, dto, user.id);
+    const updated = await this.categories.update(key, dto, user.id);
+    await this.tiers.refreshOnline({ base: updated.parentKey ?? updated.key });
+    return updated;
   }
 }

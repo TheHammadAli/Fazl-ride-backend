@@ -1,5 +1,7 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  IsArray,
   IsBoolean,
   IsDefined,
   IsIn,
@@ -78,6 +80,35 @@ export class CreateVehicleCategoryDto {
   @ValidateNested()
   @Type(() => NewFareConfigDto)
   fare: NewFareConfigDto;
+
+  // A tier of this base type (e.g. "car" for Mini / AC / Business).
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  parentKey?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  description?: string | null;
+
+  @IsOptional()
+  @IsBoolean()
+  requiresAc?: boolean;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1980)
+  @Max(2100)
+  minYear?: number | null;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsString({ each: true })
+  @MaxLength(30, { each: true })
+  models?: string[];
 }
 
 // Every field optional so an admin can change one thing at a time (rename,
@@ -107,4 +138,33 @@ export class UpdateVehicleCategoryDto {
   @Type(() => Number)
   @IsInt()
   sortOrder?: number;
+
+  // "" or null makes it a base type again.
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  parentKey?: string | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  description?: string | null;
+
+  @IsOptional()
+  @IsBoolean()
+  requiresAc?: boolean;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1980)
+  @Max(2100)
+  minYear?: number | null;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsString({ each: true })
+  @MaxLength(30, { each: true })
+  models?: string[];
 }
