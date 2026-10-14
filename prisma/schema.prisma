@@ -189,6 +189,9 @@ model DriverProfile {
   // an entry is removed as soon as the driver fixes that field or document.
   reviewIssues     Json?
   status           DriverStatus @default(pending)
+  // The achievement level reached (Silver, Gold...), kept to notice a new
+  // one and to give each level's bonus once. Null below the first level.
+  levelKey         String?
   rejectionReason  String?
   suspensionReason String?
   reviewedById     String?      @db.Uuid
@@ -783,6 +786,8 @@ enum WalletTransactionType {
   withdrawal_reversal
   adjustment
   refund
+  // Paid once when a driver reaches an achievement level.
+  level_bonus
 }
 
 enum WalletRequestKind {
@@ -1029,4 +1034,32 @@ model RideScheduleSkip {
 
   @@id([scheduleId, date])
   @@map("ride_schedule_skips")
+}
+
+// Driver achievement levels (Silver 500 rides, Gold 1,000, Platinum 3,000),
+// edited by admins. Lifetime: completed trips (rides and freight) only ever
+// go up, so a level is never lost. Each level carries rewards.
+model DriverLevel {
+  key       String   @id
+  name      String
+  // Completed trips needed.
+  minRides  Int
+  // Badge colour (hex) and icon for the apps.
+  color     String   @default("#9CA3AF")
+  icon      String   @default("star")
+  active    Boolean  @default(true)
+  // Rewards. Percentage points off the commission on every trip.
+  commissionDiscount Float @default(0)
+  // Paid into the wallet once, when the level is reached.
+  bonus              Int   @default(0)
+  // Counts as this many metres closer when choosing who gets a request.
+  priorityMeters     Int   @default(0)
+  // A lower dues limit than everyone else's (e.g. -1000); null = the usual.
+  minBalance         Int?
+  // Rewards only written down (free car wash...), handed out by the team.
+  perks              String[] @default([])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("driver_levels")
 }
