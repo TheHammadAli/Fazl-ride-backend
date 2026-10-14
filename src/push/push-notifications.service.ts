@@ -169,6 +169,17 @@ export class PushNotificationsService implements OnModuleInit, OnModuleDestroy {
       case 'wallet.request_reviewed':
         return this.devices.notify([p.userId], this.reviewed(p));
 
+      case 'driver.level_up':
+        return this.devices.notify([p.userId], {
+          title: `Congratulations! You are ${p.name} now`,
+          body:
+            p.bonus > 0
+              ? `${rs(p.bonus)} bonus added to your wallet. See your rewards.`
+              : 'See your new rewards in your profile.',
+          data: { type: 'level' },
+          channel: 'general',
+        });
+
       case 'wallet.change_received':
         return this.devices.notify([p.userId], {
           title: `${rs(p.amount)} added to your wallet`,

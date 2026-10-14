@@ -115,6 +115,14 @@ export class RealtimeEventsService implements OnModuleInit, OnModuleDestroy {
           balance: await this.wallet.balanceOf(p.userId),
         });
 
+      case 'driver.level_up':
+        // A new achievement level: the app celebrates.
+        return this.gateway.emitToUser(p.userId, 'driver:level_up', {
+          levelKey: p.levelKey,
+          name: p.name,
+          bonus: p.bonus,
+        });
+
       case 'user.blocked':
         return this.gateway.disconnectUser(
           p.userId,
