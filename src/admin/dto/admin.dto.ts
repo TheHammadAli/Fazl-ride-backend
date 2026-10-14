@@ -31,6 +31,13 @@ export class ListDriversDto extends PaginationDto {
   @Transform(({ value }) => value === true || value === 'true')
   @IsBoolean()
   awaitingReview?: boolean;
+
+  // Name, phone, CNIC or a vehicle's plate number.
+  @IsOptional()
+  @Type(() => String)
+  @IsString()
+  @MaxLength(40)
+  search?: string;
 }
 
 export class ListVehiclesDto extends PaginationDto {

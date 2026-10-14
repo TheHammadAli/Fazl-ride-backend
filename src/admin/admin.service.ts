@@ -67,13 +67,37 @@ export class AdminService {
     return { items, total, page, limit };
   }
 
-  async listDrivers({ page, limit, status, awaitingReview }: ListDriversDto) {
-    const where = awaitingReview
-      ? { status: 'pending' as const, submittedAt: { not: null } }
-      : status
-        ? { status }
-        : {};
-    const [items, total] = await Promise.all([
+  async listDrivers({
+    page,
+    limit,
+    status,
+    awaitingReview,
+    search,
+  }: ListDriversDto) {
+    const q = search?.trim();
+    const matches: Prisma.DriverProfileWhereInput = q
+      ? {
+          OR: [
+            { cnic: { contains: q.replace(/-/g, '') } },
+            { user: { name: { contains: q, mode: 'insensitive' } } },
+            { user: { phone: { contains: q } } },
+            {
+              vehicles: {
+                some: { plateNumber: { contains: q, mode: 'insensitive' } },
+              },
+            },
+          ],
+        }
+      : {};
+    const where: Prisma.DriverProfileWhereInput = {
+      ...matches,
+      ...(awaitingReview
+        ? { status: 'pending' as const, submittedAt: { not: null } }
+        : status
+          ? { status }
+          : {}),
+    };
+    const [items, total, counts] = await Promise.all([
       this.prisma.driverProfile.findMany({
         where,
         include: driverInclude,
@@ -84,8 +108,47 @@ export class AdminService {
         take: limit,
       }),
       this.prisma.driverProfile.count({ where }),
+      this.driverCounts(matches),
     ]);
-    return { items, total, page, limit };
+    // Photos for the list; a photo that can not be signed just shows none.
+    const withPhotos = await Promise.all(
+      items.map(async ({ user: { avatarKey, ...user }, ...profile }) => ({
+        ...profile,
+        user: {
+          ...user,
+          avatarUrl: avatarKey
+            ? await this.storage
+                .createSignedUrl(avatarKey, 10 * 60)
+                .catch(() => null)
+            : null,
+        },
+      })),
+    );
+    return { items: withPhotos, total, page, limit, counts };
+  }
+
+  // How many drivers are in each tab, for the same search. "review" is
+  // submitted and undecided; "draft" is still being filled in by the driver.
+  private async driverCounts(matches: Prisma.DriverProfileWhereInput) {
+    const [byStatus, review] = await Promise.all([
+      this.prisma.driverProfile.groupBy({
+        by: ['status'],
+        where: matches,
+        _count: { _all: true },
+      }),
+      this.prisma.driverProfile.count({
+        where: { ...matches, status: 'pending', submittedAt: { not: null } },
+      }),
+    ]);
+    const of = (s: string) =>
+      byStatus.find((r) => r.status === s)?._count._all ?? 0;
+    return {
+      review,
+      draft: of('pending') - review,
+      approved: of('approved'),
+      rejected: of('rejected'),
+      suspended: of('suspended'),
+    };
   }
 
   // Detail view: includes signed, short-lived links to the uploaded papers.
