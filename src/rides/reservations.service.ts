@@ -19,6 +19,9 @@ import {
   type RideWithRelations,
 } from './ride.presenter.js';
 import { RideSettings } from './rides.settings.js';
+import { VehicleCategoriesService } from '../vehicle-categories/vehicle-categories.service.js';
+import { VehicleTiersService } from '../vehicle-categories/vehicle-tiers.service.js';
+import { isOpenTier } from '../vehicle-categories/vehicle-tiers.js';
 
 // A driver cannot hold two bookings closer together than this.
 const RESERVATION_GAP_MS = 2 * 60 * 60_000;
@@ -40,6 +43,8 @@ export class ReservationsService {
     private readonly bookings: BookingSettingsService,
     private readonly cancellations: CancellationsService,
     private readonly events: DomainEvents,
+    private readonly tiers: VehicleTiersService,
+    private readonly categories: VehicleCategoriesService,
   ) {}
 
   // The start window of a booking, for the ride view and the apps.
@@ -61,13 +66,19 @@ export class ReservationsService {
   // The vehicle types this driver can take bookings for, and where they
   // were last (online or not), to show the bookings near them.
   private async driverContext(driverId: string) {
-    const vehicles = await this.prisma.vehicle.findMany({
+    const approved = await this.prisma.vehicle.findMany({
       where: {
         status: 'approved',
         driverProfile: { userId: driverId, status: 'approved' },
       },
-      select: { id: true, category: true },
     });
+    // Each with every ride type it may take (tiers included).
+    const vehicles = await Promise.all(
+      approved.map(async (v) => ({
+        id: v.id,
+        serves: await this.tiers.servingFor(v),
+      })),
+    );
     const rows = await this.prisma.$queryRaw<{ lat: number; lng: number }[]>`
       SELECT ST_Y("location"::geometry) AS lat, ST_X("location"::geometry) AS lng
       FROM driver_presence
@@ -131,7 +142,7 @@ export class ReservationsService {
         status: 'scheduled',
         driverId: null,
         passengerId: { not: driverId },
-        category: { in: [...new Set(vehicles.map((v) => v.category))] },
+        category: { in: [...new Set(vehicles.flatMap((v) => v.serves))] },
         scheduledAt: { gt: new Date() },
       },
       include: { ...rideInclude, offers: { where: { driverId } } },
@@ -191,12 +202,20 @@ export class ReservationsService {
     pickupLng: number;
   }) {
     const s = await this.bookings.get();
+    // A tier: vehicles of its base type, approved for it unless it is open.
+    const type = (await this.categories.allForTiers()).find(
+      (c) => c.key === ride.category,
+    );
+    const base = type?.parentKey ?? ride.category;
+    const anyOfBase = !type?.parentKey || (type ? isOpenTier(type) : true);
     const rows = await this.prisma.$queryRaw<{ userId: string }[]>`
       SELECT DISTINCT dp."userId" AS "userId"
       FROM vehicles v
       JOIN driver_profiles dp ON dp.id = v."driverProfileId"
       LEFT JOIN driver_presence p ON p."userId" = dp."userId"
-      WHERE v.category = ${ride.category} AND v.status = 'approved'
+      WHERE v.category = ${base} AND v.status = 'approved'
+        AND (${anyOfBase}::boolean OR ${ride.category} = ANY(v.tiers))
+        AND NOT (${ride.category} = ANY(v."tiersOff"))
         AND dp.status = 'approved' AND dp."userId" <> ${ride.passengerId}::uuid
         AND (p."location" IS NULL OR ST_DWithin(
           p."location",
@@ -218,7 +237,7 @@ export class ReservationsService {
       throw new ConflictException('This booking is no longer open');
     }
     const { vehicles, position } = await this.driverContext(driverId);
-    if (!vehicles.some((v) => v.category === ride.category)) {
+    if (!vehicles.some((v) => v.serves.includes(ride.category))) {
       throw new ConflictException('You have no approved vehicle of this type');
     }
     const min = Math.round(
@@ -284,9 +303,12 @@ export class ReservationsService {
     }
     const presence = await this.prisma.driverPresence.findUnique({
       where: { userId: driverId },
-      select: { isOnline: true, busy: true, category: true },
+      select: { isOnline: true, busy: true, category: true, categories: true },
     });
-    if (!presence?.isOnline || presence.category !== ride.category) {
+    const serves = presence?.categories.length
+      ? presence.categories
+      : [presence?.category];
+    if (!presence?.isOnline || !serves.includes(ride.category)) {
       throw new ConflictException({
         code: 'GO_ONLINE_FIRST',
         message: `Go online with your ${ride.category} first`,
@@ -420,14 +442,19 @@ export class ReservationsService {
         'That driver is booked around that time; pick another offer',
       );
     }
-    const vehicle = await tx.vehicle.findFirst({
+    const candidates = await tx.vehicle.findMany({
       where: {
-        category: ride.category,
         status: 'approved',
         driverProfile: { userId: offer.driverId, status: 'approved' },
       },
-      select: { id: true },
     });
+    let vehicle: { id: string } | null = null;
+    for (const v of candidates) {
+      if ((await this.tiers.servingFor(v)).includes(ride.category)) {
+        vehicle = v;
+        break;
+      }
+    }
     if (!vehicle) {
       throw new ConflictException(
         'That driver can no longer take this booking',

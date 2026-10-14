@@ -27,6 +27,7 @@ import { StorageService } from '../storage/storage.service.js';
 import { WalletService } from '../wallet/wallet.service.js';
 import { ReservationsService } from './reservations.service.js';
 import { BookingSettingsService } from './booking-settings.service.js';
+import { VehicleTiersService } from '../vehicle-categories/vehicle-tiers.service.js';
 import { RideSettings } from './rides.settings.js';
 import { billedDistanceMeters, FareRatesSnapshot } from './trip-distance.js';
 import { VehicleCategoriesService } from '../vehicle-categories/vehicle-categories.service.js';
@@ -57,6 +58,7 @@ export class RidesService {
     private readonly wallet: WalletService,
     private readonly reservations: ReservationsService,
     private readonly bookingSettings: BookingSettingsService,
+    private readonly tiers: VehicleTiersService,
   ) {}
 
   // The lowest a negotiable price may go for a ride whose fixed/estimated
@@ -433,7 +435,10 @@ export class RidesService {
             'This ride is negotiable; send a bid instead of accepting directly',
           );
         }
-        if (ride.category !== presence.category) {
+        const serves = presence.categories.length
+          ? presence.categories
+          : [presence.category];
+        if (!serves.includes(ride.category)) {
           throw new ConflictException(
             "Your current vehicle does not match this ride's category",
           );
@@ -704,21 +709,22 @@ export class RidesService {
       }),
     ]);
     if (category) {
-      const own = await this.prisma.vehicle.findMany({
+      // Their approved vehicle that may take this type (tiers included).
+      const approved = await this.prisma.vehicle.findMany({
         where: {
-          category,
           status: 'approved',
           driverProfile: { userId: { in: driverIds } },
         },
-        select: { id: true, driverProfile: { select: { userId: true } } },
+        include: { driverProfile: { select: { userId: true } } },
       });
-      for (const v of own) {
-        const presence = presences.find(
-          (p) => p.userId === v.driverProfile.userId,
-        );
-        if (presence) presence.vehicleId = v.id;
-        else
-          presences.push({ userId: v.driverProfile.userId, vehicleId: v.id });
+      for (const vehicle of approved) {
+        if (!(await this.tiers.servingFor(vehicle)).includes(category)) {
+          continue;
+        }
+        const userId = vehicle.driverProfile.userId;
+        const presence = presences.find((p) => p.userId === userId);
+        if (presence) presence.vehicleId = vehicle.id;
+        else presences.push({ userId, vehicleId: vehicle.id });
       }
     }
     const vehicleIds = presences.map((p) => p.vehicleId).filter((v) => v);
