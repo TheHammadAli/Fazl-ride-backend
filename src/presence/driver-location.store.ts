@@ -3,7 +3,9 @@ import type { LatLng } from '../common/geo.js';
 export interface NearbyDriver {
   userId: string;
   vehicleId: string;
+  // The vehicle's own type (car), and every ride type it can be offered.
   category: string;
+  categories: string[];
   distanceMeters: number;
   lat: number;
   lng: number;
@@ -30,6 +32,7 @@ export abstract class DriverLocationStore {
     userId: string,
     vehicleId: string,
     category: string,
+    categories: string[],
     at: LatLng,
   ): Promise<void>;
   abstract goOffline(userId: string): Promise<void>;

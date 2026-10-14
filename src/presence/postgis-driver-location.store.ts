@@ -27,18 +27,26 @@ export class PostgisDriverLocationStore extends DriverLocationStore {
   }
 
   // PostGIS points are (longitude, latitude), the reverse of how people say it.
-  async goOnline(userId: string, vehicleId: string, category: string, at: LatLng) {
+  async goOnline(
+    userId: string,
+    vehicleId: string,
+    category: string,
+    categories: string[],
+    at: LatLng,
+  ) {
     await this.prisma.$executeRaw`
       INSERT INTO driver_presence
-        ("userId", "vehicleId", "category", "isOnline", "busy", "location",
-         "locationUpdatedAt", "onlineSince", "updatedAt")
+        ("userId", "vehicleId", "category", "categories", "isOnline", "busy",
+         "location", "locationUpdatedAt", "onlineSince", "updatedAt")
       VALUES
-        (${userId}::uuid, ${vehicleId}::uuid, ${category}, true, false,
+        (${userId}::uuid, ${vehicleId}::uuid, ${category}, ${categories}::text[],
+         true, false,
          ST_SetSRID(ST_MakePoint(${at.lng}::float8, ${at.lat}::float8), 4326)::geography,
          now(), now(), now())
       ON CONFLICT ("userId") DO UPDATE SET
         "vehicleId" = EXCLUDED."vehicleId",
         "category" = EXCLUDED."category",
+        "categories" = EXCLUDED."categories",
         "location" = EXCLUDED."location",
         "locationUpdatedAt" = now(),
         "onlineSince" = CASE WHEN driver_presence."isOnline"
@@ -81,13 +89,14 @@ export class PostgisDriverLocationStore extends DriverLocationStore {
         userId: string;
         vehicleId: string;
         category: string;
+        categories: string[] | null;
         distance: number;
         lat: number;
         lng: number;
         heading: number | null;
       }[]
     >`
-      SELECT "userId", "vehicleId", "category",
+      SELECT "userId", "vehicleId", "category", "categories",
              ST_Distance("location", ST_SetSRID(ST_MakePoint(${q.lng}::float8, ${q.lat}::float8), 4326)::geography) AS distance,
              ST_Y("location"::geometry) AS lat,
              ST_X("location"::geometry) AS lng,
@@ -96,13 +105,16 @@ export class PostgisDriverLocationStore extends DriverLocationStore {
       WHERE "isOnline" AND NOT "busy" AND "location" IS NOT NULL
         AND "locationUpdatedAt" > now() - make_interval(secs => ${this.ttlSeconds}::int)
         AND ST_DWithin("location", ST_SetSRID(ST_MakePoint(${q.lng}::float8, ${q.lat}::float8), 4326)::geography, ${q.radiusMeters}::float8)
-        AND (${q.category ?? null}::text IS NULL OR "category" = ${q.category ?? null}::text)
+        AND (${q.category ?? null}::text IS NULL
+             OR ${q.category ?? null}::text = ANY("categories")
+             OR "category" = ${q.category ?? null}::text)
       ORDER BY distance
       LIMIT ${q.limit}::int`;
     return rows.map((r) => ({
       userId: r.userId,
       vehicleId: r.vehicleId,
       category: r.category,
+      categories: r.categories?.length ? r.categories : [r.category],
       distanceMeters: Math.round(r.distance),
       lat: r.lat,
       lng: r.lng,

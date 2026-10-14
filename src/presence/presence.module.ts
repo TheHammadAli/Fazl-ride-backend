@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { CancellationsModule } from '../cancellations/cancellations.module.js';
 import { AuthModule } from '../auth/auth.module.js';
 import { WalletModule } from '../wallet/wallet.module.js';
+import { VehicleCategoriesModule } from '../vehicle-categories/vehicle-categories.module.js';
 import { DestinationService } from './destination.service.js';
 import { DriverLocationStore } from './driver-location.store.js';
 import { PostgisDriverLocationStore } from './postgis-driver-location.store.js';
@@ -11,7 +12,12 @@ import { PresenceSweeperService } from './presence-sweeper.service.js';
 import { PresenceService } from './presence.service.js';
 
 @Module({
-  imports: [AuthModule, CancellationsModule, WalletModule],
+  imports: [
+    AuthModule,
+    CancellationsModule,
+    WalletModule,
+    VehicleCategoriesModule,
+  ],
   controllers: [PresenceController, NearbyDriversController],
   providers: [
     PresenceService,

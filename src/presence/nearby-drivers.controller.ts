@@ -33,6 +33,8 @@ export class NearbyDriversController {
         lat: d.lat,
         lng: d.lng,
         category: d.category,
+        // Ride types it can take (tiers), so a map can show e.g. AC cars.
+        categories: d.categories,
         heading: d.heading,
       })),
     };

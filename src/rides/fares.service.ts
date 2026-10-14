@@ -151,7 +151,10 @@ export class FaresService {
     ]);
     const estimates = await Promise.all(
       configs.map(async (config) => {
-        const drivers = nearby.filter((d) => d.category === config.category);
+        // Drivers whose vehicle may take this type (tiers included).
+        const drivers = nearby.filter((d) =>
+          d.categories.includes(config.category),
+        );
         const nearest = drivers[0]; // already ordered by distance
         const toPickup = nearest
           ? await this.routing.route(

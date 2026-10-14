@@ -16,6 +16,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { DestinationService } from './destination.service.js';
 import { DriverLocationStore } from './driver-location.store.js';
 import { WalletService } from '../wallet/wallet.service.js';
+import { VehicleTiersService } from '../vehicle-categories/vehicle-tiers.service.js';
 import { GoOnlineDto, LocationUpdateDto } from './dto/presence.dto.js';
 import { onlineSecondsSince } from './online-time.js';
 
@@ -30,6 +31,7 @@ export class PresenceService {
     private readonly cancellations: CancellationsService,
     private readonly destination: DestinationService,
     private readonly wallet: WalletService,
+    private readonly tiers: VehicleTiersService,
     config: ConfigService,
   ) {
     this.tzOffset = Number(
@@ -75,7 +77,15 @@ export class PresenceService {
       );
     }
 
-    await this.store.goOnline(userId, vehicle.id, vehicle.category, dto);
+    // The ride types (tiers) this vehicle may be offered right now.
+    const categories = await this.tiers.servingFor(vehicle);
+    await this.store.goOnline(
+      userId,
+      vehicle.id,
+      vehicle.category,
+      categories,
+      dto,
+    );
     const open = await this.prisma.driverSession.findFirst({
       where: { userId, endedAt: null },
     });
