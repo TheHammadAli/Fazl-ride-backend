@@ -28,6 +28,7 @@ import type {
   TopupRequestDto,
   WithdrawalRequestDto,
 } from './dto/wallet.dto.js';
+import { discountedPercent } from '../levels/level-rules.js';
 import {
   commissionFor,
   duesToClear,
@@ -56,6 +57,7 @@ export const TRANSACTION_LABELS: Record<WalletTransactionType, string> = {
   withdrawal_reversal: 'Withdrawal returned',
   adjustment: 'Adjustment',
   refund: 'Refund',
+  level_bonus: 'Level bonus',
 };
 
 // One posting to the ledger. `key` must be unique for the business event it
@@ -201,9 +203,17 @@ export class WalletService {
         id: { not: ride.id },
       },
     });
+    // A driver's level can take points off the commission.
+    const level = await this.levelOf(ride.driverId, tx);
     const commission = isFreeRide(completedBefore, settings.freeRidesPerDriver)
       ? 0
-      : commissionFor(ride.fare, settings.commissionPercent);
+      : commissionFor(
+          ride.fare,
+          discountedPercent(
+            settings.commissionPercent,
+            level?.commissionDiscount ?? 0,
+          ),
+        );
     let walletPaid = 0;
     if (ride.paymentMethod === 'wallet') {
       const locked = await tx.$queryRaw<{ balance: number }[]>`
@@ -314,19 +324,40 @@ export class WalletService {
   // Going online with commission dues above the limit is refused, with what
   // it takes to clear them.
   async assertNoDues(driverId: string) {
-    const [settings, balance] = await Promise.all([
-      this.settings(),
+    const [min, balance] = await Promise.all([
+      this.minBalanceOf(driverId),
       this.balanceOf(driverId),
     ]);
-    if (hasDues(balance, settings.driverMinBalance)) {
+    if (hasDues(balance, min)) {
       throw new ForbiddenException({
         code: 'WALLET_DUES',
-        message: `Clear your dues of Rs ${duesToClear(balance, settings.driverMinBalance)} to go online`,
+        message: `Clear your dues of Rs ${duesToClear(balance, min)} to go online`,
         balance,
-        minBalance: settings.driverMinBalance,
-        duesToClear: duesToClear(balance, settings.driverMinBalance),
+        minBalance: min,
+        duesToClear: duesToClear(balance, min),
       });
     }
+  }
+
+  // The driver's achievement level (rewards), if any.
+  private async levelOf(driverId: string, tx: Tx = this.prisma) {
+    const profile = await tx.driverProfile.findUnique({
+      where: { userId: driverId },
+      select: { levelKey: true },
+    });
+    if (!profile?.levelKey) return null;
+    return tx.driverLevel.findFirst({
+      where: { key: profile.levelKey, active: true },
+    });
+  }
+
+  // The dues limit for this driver: their level's, or everyone's.
+  async minBalanceOf(driverId: string): Promise<number> {
+    const [settings, level] = await Promise.all([
+      this.settings(),
+      this.levelOf(driverId),
+    ]);
+    return level?.minBalance ?? settings.driverMinBalance;
   }
 
   // Of these drivers, the ones below the minimum balance: they get no new
@@ -334,20 +365,34 @@ export class WalletService {
   async withDues(userIds: string[]): Promise<Set<string>> {
     if (!userIds.length) return new Set();
     const settings = await this.settings();
-    const rows = await this.prisma.wallet.findMany({
-      where: {
-        userId: { in: userIds },
-        balance: { lt: settings.driverMinBalance },
-      },
-      select: { userId: true },
+    // Levels may set their own limit: look at everyone below the highest
+    // limit in use, then check each against their own.
+    const levels = await this.prisma.driverLevel.findMany({
+      where: { active: true, minBalance: { not: null } },
+      select: { minBalance: true },
     });
-    return new Set(rows.map((r) => r.userId));
+    const highest = Math.max(
+      settings.driverMinBalance,
+      ...levels.map((l) => l.minBalance!),
+    );
+    const rows = await this.prisma.wallet.findMany({
+      where: { userId: { in: userIds }, balance: { lt: highest } },
+      select: { userId: true, balance: true },
+    });
+    if (!levels.length) return new Set(rows.map((r) => r.userId));
+    const owing = new Set<string>();
+    for (const r of rows) {
+      if (hasDues(r.balance, await this.minBalanceOf(r.userId))) {
+        owing.add(r.userId);
+      }
+    }
+    return owing;
   }
 
   // ---- The person's own wallet --------------------------------------------
 
   async summary(userId: string) {
-    const [settings, balance, pending, driven] = await Promise.all([
+    const [settings, balance, pending, driven, min] = await Promise.all([
       this.settings(),
       this.balanceOf(userId),
       this.prisma.walletRequest.findMany({
@@ -357,6 +402,7 @@ export class WalletService {
       this.prisma.ride.count({
         where: { driverId: userId, status: 'completed' },
       }),
+      this.minBalanceOf(userId),
     ]);
     return {
       currency: 'PKR',
@@ -365,9 +411,9 @@ export class WalletService {
       freeRidesLeft: freeRidesLeft(driven, settings.freeRidesPerDriver),
       commissionPercent: settings.commissionPercent,
       // Drivers: below this they cannot go online.
-      minBalance: settings.driverMinBalance,
-      hasDues: hasDues(balance, settings.driverMinBalance),
-      duesToClear: duesToClear(balance, settings.driverMinBalance),
+      minBalance: min,
+      hasDues: hasDues(balance, min),
+      duesToClear: duesToClear(balance, min),
       limits: {
         minTopup: settings.minTopup,
         maxTopup: settings.maxTopup,
