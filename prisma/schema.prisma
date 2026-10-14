@@ -59,6 +59,17 @@ model VehicleCategory {
   // Which service lists it: 'ride' (passengers) or 'freight' (goods: loader
   // rickshaw, pickup, truck, dumper...).
   service   String   @default("ride")
+  // Ride tiers (Mini, AC, Business...): set on a tier, the base type its
+  // vehicles are registered as (car). Null for a base type. A tier with no
+  // requirement below is open to every vehicle of the base type; one with a
+  // requirement needs an admin to approve each vehicle for it.
+  parentKey   String?
+  // One line for passengers ("Air-conditioned, newer cars").
+  description String?
+  requiresAc  Boolean  @default(false)
+  minYear     Int?
+  // Lowercase make/model words a vehicle must match (empty = any).
+  models      String[] @default([])
   active    Boolean  @default(true)
   sortOrder Int      @default(0)
   createdAt DateTime @default(now())
@@ -202,6 +213,12 @@ model Vehicle {
   year            Int
   color           String
   plateNumber     String        @unique
+  // What the driver said; checked by the admin.
+  hasAc           Boolean       @default(false)
+  // Tiers with requirements this vehicle is approved for (by an admin).
+  tiers           String[]      @default([])
+  // Tiers the driver chose not to get requests for.
+  tiersOff        String[]      @default([])
   status          VehicleStatus @default(pending)
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
@@ -293,6 +310,9 @@ model DriverPresence {
   userId            String                                @id @db.Uuid
   vehicleId         String                                @db.Uuid
   category          String
+  // Every ride type this driver can be offered right now (base type and
+  // tiers), worked out when they go online or their tiers change.
+  categories        String[]                              @default([])
   isOnline          Boolean                               @default(false)
   busy              Boolean                               @default(false)
   location          Unsupported("geography(Point,4326)")?
@@ -571,6 +591,8 @@ model RideRating {
   rateeId   String   @db.Uuid
   stars     Int
   comment   String?
+  // The customer said the AC did not work (rides booked as an AC tier).
+  acIssue   Boolean  @default(false)
   createdAt DateTime @default(now())
 
   ride  Ride @relation(fields: [rideId], references: [id], onDelete: Cascade)
