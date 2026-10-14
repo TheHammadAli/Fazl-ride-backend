@@ -27,6 +27,7 @@ import { UsersModule } from './users/users.module.js';
 import { VehicleCategoriesModule } from './vehicle-categories/vehicle-categories.module.js';
 import { WalletModule } from './wallet/wallet.module.js';
 import { PushModule } from './push/push.module.js';
+import { PlacesModule } from './places/places.module.js';
 import { SavedPlacesModule } from './saved-places/saved-places.module.js';
 import { LevelsModule } from './levels/levels.module.js';
 
@@ -55,6 +56,7 @@ import { LevelsModule } from './levels/levels.module.js';
     WalletModule,
     PushModule,
     SavedPlacesModule,
+    PlacesModule,
     LevelsModule,
     RidesModule,
     ChatModule,

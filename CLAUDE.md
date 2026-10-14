@@ -290,3 +290,11 @@ Migration `20261016090000_driver_levels`. Module `src/levels/` (rules in `level-
 - Applied in: `WalletService.settleRide` (discounted commission), dues checks (`assertNoDues`, matching's `withDues`, `GET wallet`) and `MatchingService` (`byPriority` before the destination filter).
 - Routes: `GET drivers/me/level` (trips, current, next, `progress {left, fraction}`, all active levels with rewards); admin `GET/POST admin/driver-levels`, `PATCH admin/driver-levels/:key` (audited, never deleted).
 - App: driver Profile shows the level card (badge, progress to the next, current rewards; tap = every level); a celebration dialog on `driver:level_up`.
+
+## Place search (2026-10-15, Google Places through the backend)
+Module `src/places/` (`PlacesProvider` adapter bound to `GooglePlacesProvider`; parsing in `google-places.ts` + spec). The apps' search box calls the backend, never Google, so the key stays off the phone.
+- `GET places/autocomplete?q&lat&lng&session` -> `[{placeId, title, subtitle}]` (Places API (New), Pakistan only, biased 50 km around the point); `GET places/details?placeId&session` -> `{placeId, lat, lng, address}` (Essentials fields only: id, formattedAddress, location); `GET places/reverse?lat&lng` -> `{address, name, city}` (Geocoding API; plus codes stripped; Pakistani sectors like "F-8" come as plain `political` parts). JWT, 60/min per user.
+- `session` is a UUID the app makes per search: the typing and the chosen place are billed by Google as one search.
+- In-memory caches per instance: suggestions 10 min (same words, ~1 km cell), a place's position 30 days (Google's limit), reverse 1 day (~11 m cell).
+- Key: `GOOGLE_PLACES_API_KEY` (server key restricted to Places API (New) + Geocoding API, in Google Cloud project "Fazl App" / `market-app-backend`, FAZL's billing). Unset or Google failing -> 503 `PLACES_UNAVAILABLE`, and the app falls back to OpenStreetMap (Nominatim) by itself.
+- App: `ServerPlacesRepository` (fallback `NominatimPlacesRepository`); results are `PlaceSuggestion`s, turned into a `Place` on tap (`resolvePlace`). The place's own name is put in front of Google's street address so drivers see "Centaurus Mall, 4 Jinnah Avenue...".
