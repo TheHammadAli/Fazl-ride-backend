@@ -37,6 +37,17 @@ export class RatingsService {
     const rateeId =
       ride.passengerId === userId ? ride.driverId : ride.passengerId;
     if (!rateeId) throw new ConflictException('This ride has nobody to rate');
+    // "AC did not work" only means something from the customer on an AC tier.
+    const acIssue =
+      dto.acIssue === true &&
+      ride.passengerId === userId &&
+      ride.vehicleId != null &&
+      (
+        await this.prisma.vehicleCategory.findUnique({
+          where: { key: ride.category },
+          select: { requiresAc: true },
+        })
+      )?.requiresAc === true;
 
     try {
       await this.prisma.$transaction([
@@ -47,6 +58,7 @@ export class RatingsService {
             rateeId,
             stars: dto.stars,
             comment: dto.comment,
+            acIssue,
           },
         }),
         this.prisma.user.update({
@@ -68,7 +80,22 @@ export class RatingsService {
       rateeId,
       stars: dto.stars,
     });
+    if (acIssue && ride.vehicleId) await this.countAcReports(ride.vehicleId);
     return { rideId, stars: dto.stars, comment: dto.comment ?? null };
+  }
+
+  // Every third "AC did not work" for a vehicle in 30 days alerts the admins.
+  private async countAcReports(vehicleId: string) {
+    const reports = await this.prisma.rideRating.count({
+      where: {
+        acIssue: true,
+        createdAt: { gt: new Date(Date.now() - 30 * 86_400_000) },
+        ride: { vehicleId },
+      },
+    });
+    if (reports > 0 && reports % 3 === 0) {
+      this.events.emit('vehicle.ac_reported', { vehicleId, reports });
+    }
   }
 
   mine(rideId: string, userId: string) {

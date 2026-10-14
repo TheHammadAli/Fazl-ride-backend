@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsInt,
   IsOptional,
   IsString,
@@ -19,4 +20,9 @@ export class RateRideDto {
   @IsString()
   @MaxLength(300)
   comment?: string;
+
+  // The customer says the AC did not work (only counted on AC tiers).
+  @IsOptional()
+  @IsBoolean()
+  acIssue?: boolean;
 }
