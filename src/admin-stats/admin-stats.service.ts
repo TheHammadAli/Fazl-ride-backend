@@ -182,13 +182,23 @@ export class AdminStatsService {
         ORDER BY r."requestedAt" DESC
         LIMIT 200`,
       this.prisma.$queryRaw<
-        { lat: number; lng: number; category: string; busy: boolean }[]
+        {
+          userId: string;
+          name: string | null;
+          phone: string;
+          lat: number;
+          lng: number;
+          category: string;
+          busy: boolean;
+        }[]
       >`
-        SELECT ST_Y(location::geometry) AS lat, ST_X(location::geometry) AS lng,
-               category, busy
-        FROM driver_presence
-        WHERE "isOnline" AND location IS NOT NULL
-          AND "locationUpdatedAt" > now() - make_interval(secs => ${LIVE_SECONDS})
+        SELECT dp."userId", u.name, u.phone,
+               ST_Y(dp.location::geometry) AS lat, ST_X(dp.location::geometry) AS lng,
+               dp.category, dp.busy
+        FROM driver_presence dp
+        JOIN users u ON u.id = dp."userId"
+        WHERE dp."isOnline" AND dp.location IS NOT NULL
+          AND dp."locationUpdatedAt" > now() - make_interval(secs => ${LIVE_SECONDS})
         LIMIT 1000`,
     ]);
     return {
