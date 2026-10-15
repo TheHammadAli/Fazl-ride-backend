@@ -22,6 +22,8 @@ import { RidesService } from './rides.service.js';
 import { FreightController } from './freight.controller.js';
 import { AdminBookingSettingsController } from './admin-booking-settings.controller.js';
 import { BookingSettingsService } from './booking-settings.service.js';
+import { StaleRideSweeperService } from './stale-ride-sweeper.service.js';
+import { AdminNotificationsModule } from '../admin-notifications/admin-notifications.module.js';
 import { BookingSweeperService } from './booking-sweeper.service.js';
 import { SchedulesController } from './schedules.controller.js';
 import { SchedulesService } from './schedules.service.js';
@@ -38,6 +40,7 @@ import { ReservationsService } from './reservations.service.js';
     VehicleCategoriesModule,
     WalletModule,
     LevelsModule,
+    AdminNotificationsModule,
   ],
   controllers: [
     AdminBookingSettingsController,
@@ -52,6 +55,7 @@ import { ReservationsService } from './reservations.service.js';
     BookingSettingsService,
     SchedulesService,
     BookingSweeperService,
+    StaleRideSweeperService,
     FaresService,
     RidesService,
     MatchingService,
