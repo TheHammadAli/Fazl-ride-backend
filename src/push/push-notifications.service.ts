@@ -146,6 +146,24 @@ export class PushNotificationsService implements OnModuleInit, OnModuleDestroy {
             tag: `ride-${p.rideId}`,
           });
         }
+        if (p.by === 'system') {
+          // Closed by the stale-ride sweeper: both people learn why.
+          const body = String(p.message ?? 'This ride was closed.');
+          for (const [userId, role] of [
+            [p.passengerId, 'passenger'],
+            [p.driverId, 'driver'],
+          ] as const) {
+            if (!userId) continue;
+            await this.devices.notify([userId], {
+              title: 'Ride closed',
+              body,
+              data: { type: 'ride', rideId: p.rideId, role },
+              channel: 'general',
+              tag: `ride-${p.rideId}`,
+            });
+          }
+          return;
+        }
         if (p.by !== 'passenger' || !p.driverId) return;
         return this.devices.notify([p.driverId], {
           title: 'Ride cancelled',

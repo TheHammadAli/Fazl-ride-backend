@@ -141,6 +141,21 @@ describe('PushNotificationsService', () => {
     expect(sent[0].message.body).toContain('FAZL support');
   });
 
+  it('tells both people why a stale ride was closed', async () => {
+    const { events, sent, settle } = setup();
+    events.emit('ride.cancelled', {
+      rideId: 'r1',
+      by: 'system',
+      driverId: 'd1',
+      passengerId: 'p1',
+      message: 'The driver lost connection before the pickup.',
+    });
+    await settle();
+    expect(sent.map((s) => s.to)).toEqual([['p1'], ['d1']]);
+    expect(sent[1].message.body).toContain('lost connection');
+    expect(sent[1].message.data.role).toBe('driver');
+  });
+
   it('explains a rejected top-up with the reason', async () => {
     const { events, sent, settle } = setup();
     events.emit('wallet.request_reviewed', {
