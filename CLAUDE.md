@@ -306,3 +306,11 @@ Dashboard, Live Rides, Reports, Users and Settings in `fazl-parking-frontned` no
 - `POST admin/rides/:id/cancel {reason}`: any scheduled/requested/accepted/arrived/started ride; `cancelledBy = system`, reason "Cancelled by FAZL support: ...", pending offers expired, driver freed, no cancellation strike, audited (`ride.admin_cancel`); `ride.cancelled` with `by: 'admin'` pushes both people.
 - `GET admin/users` gained `status`, `role`, email search, per-status `counts`, and per row roles, rides as passenger/driver, wallet balance, rating, signed avatar; `GET admin/users/:id` returns one such row.
 - Verified with a throwaway-DB script (35 checks: counts, revenue, live positions, reports series, admin cancel side effects, user filters).
+
+## Stale rides close by themselves (2026-10-15)
+A ride under way whose driver went silent used to stay open forever (the presence sweeper never sweeps a `busy` driver), keeping the driver busy and the passenger unable to book. Rule in `src/rides/stale-rides.ts` (+ spec), job `StaleRideSweeperService` (every 60 s, advisory lock 727_004, runs with the matching sweeper):
+- `accepted`/`arrived`: no driver position (or since the accept) for `STALE_DRIVER_MINUTES` (15) -> `driver_lost`.
+- `started`: no position for `STALE_TRIP_MINUTES` (120; long intercity trips lose signal) -> `trip_lost`.
+- Any ride under way requested more than `STALE_RIDE_HOURS` (24) ago -> `too_old`. Bookings for later (`scheduled`) are never touched.
+- Closing reuses the admin cancel path (`AdminRidesService.close`, re-checked under the row lock so a position that just arrived wins): `cancelled`, `cancelledBy = system`, the reason text as `cancelReason`, offers expired, driver freed, no strike, audited `ride.auto_close`, admin notification `ride_closed` (opens the ride in Live Rides), and `ride.cancelled` with `by: 'system'` pushes both people the reason.
+- Verified on a throwaway DB (11 checks: quiet driver closed, moving driver and a 30-min-silent trip kept, 2-hour-silent trip closed, passenger can book again).
