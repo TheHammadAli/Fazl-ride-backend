@@ -12,6 +12,8 @@ const DAY = 86_400_000;
 const ACTIVE = ['accepted', 'arrived', 'started'] as const;
 // A position older than this is not shown as live.
 const LIVE_SECONDS = 120;
+// Counted as online on the dashboard (the sweeper's own limit, 5 minutes).
+const ONLINE_SECONDS = Number(process.env.DRIVER_OFFLINE_AFTER_SECONDS ?? 300);
 // Reports never cover more than this, so one request stays cheap.
 const MAX_REPORT_DAYS = 366;
 
@@ -75,10 +77,13 @@ export class AdminStatsService {
       }),
       this.prisma.vehicle.count({ where: { status: 'pending' } }),
       this.prisma.walletRequest.count({ where: { status: 'pending' } }),
+      // Only drivers whose phone sent a position lately: a driver stuck
+      // "online" on a ride that never ended does not count.
       this.prisma.$queryRaw<{ online: bigint; busy: bigint }[]>`
         SELECT count(*) FILTER (WHERE "isOnline") AS online,
                count(*) FILTER (WHERE "isOnline" AND busy) AS busy
-        FROM driver_presence`,
+        FROM driver_presence
+        WHERE "locationUpdatedAt" > now() - make_interval(secs => ${ONLINE_SECONDS})`,
       this.live(),
     ]);
     const finished = current.completed + current.cancelled;
