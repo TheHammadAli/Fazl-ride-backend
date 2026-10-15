@@ -128,6 +128,24 @@ export class PushNotificationsService implements OnModuleInit, OnModuleDestroy {
         }));
 
       case 'ride.cancelled':
+        if (p.by === 'admin') {
+          const body = 'FAZL support cancelled this ride.';
+          await this.devices.notify([p.passengerId], {
+            title: 'Ride cancelled',
+            body,
+            data: { type: 'ride', rideId: p.rideId, role: 'passenger' },
+            channel: 'general',
+            tag: `ride-${p.rideId}`,
+          });
+          if (!p.driverId) return;
+          return this.devices.notify([p.driverId], {
+            title: 'Ride cancelled',
+            body,
+            data: { type: 'ride', rideId: p.rideId, role: 'driver' },
+            channel: 'general',
+            tag: `ride-${p.rideId}`,
+          });
+        }
         if (p.by !== 'passenger' || !p.driverId) return;
         return this.devices.notify([p.driverId], {
           title: 'Ride cancelled',

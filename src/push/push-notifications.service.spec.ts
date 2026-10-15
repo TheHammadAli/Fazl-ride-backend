@@ -128,6 +128,19 @@ describe('PushNotificationsService', () => {
     expect(sent[0].to).toEqual(['d1']);
   });
 
+  it('tells both people when FAZL support cancels', async () => {
+    const { events, sent, settle } = setup();
+    events.emit('ride.cancelled', {
+      rideId: 'r1',
+      by: 'admin',
+      driverId: 'd1',
+      passengerId: 'p1',
+    });
+    await settle();
+    expect(sent.map((s) => s.to)).toEqual([['p1'], ['d1']]);
+    expect(sent[0].message.body).toContain('FAZL support');
+  });
+
   it('explains a rejected top-up with the reason', async () => {
     const { events, sent, settle } = setup();
     events.emit('wallet.request_reviewed', {

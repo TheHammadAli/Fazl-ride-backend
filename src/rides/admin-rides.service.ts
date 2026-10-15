@@ -1,18 +1,52 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { AuditService } from '../audit/audit.service.js';
+import { DomainEvents } from '../events/domain-events.service.js';
 import type { Prisma } from '../generated/prisma/client.js';
+import type { RideStatus } from '../generated/prisma/enums.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { ListRidesDto } from './dto/admin-rides.dto.js';
 import { ratingView } from './rating.js';
 
 const person = { select: { id: true, name: true, phone: true } } as const;
 
+// Under way right now: looking for a driver, or a driver is on it.
+const ACTIVE: RideStatus[] = ['requested', 'accepted', 'arrived', 'started'];
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Addresses, the passenger's or driver's name/phone, or a whole ride id.
+function rideSearch(q: string): Prisma.RideWhereInput[] {
+  const text = { contains: q, mode: 'insensitive' as const };
+  return [
+    { pickupAddress: text },
+    { dropoffAddress: text },
+    { passenger: { OR: [{ name: text }, { phone: { contains: q } }] } },
+    { driver: { OR: [{ name: text }, { phone: { contains: q } }] } },
+    ...(UUID.test(q) ? [{ id: q.toLowerCase() }] : []),
+  ];
+}
+
+// What an admin may stop (a finished ride is history).
+const CANCELLABLE: RideStatus[] = ['scheduled', ...ACTIVE];
+
 @Injectable()
 export class AdminRidesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly events: DomainEvents,
+    private readonly audit: AuditService,
+  ) {}
 
   async list(q: ListRidesDto) {
+    const search = q.search?.trim();
     const where: Prisma.RideWhereInput = {
-      ...(q.status && { status: q.status }),
+      ...(q.status
+        ? { status: q.status }
+        : q.active && { status: { in: ACTIVE } }),
+      ...(search && { OR: rideSearch(search) }),
       ...(q.category && { category: q.category }),
       ...(q.tripType && { tripType: q.tripType }),
       ...(q.passengerId && { passengerId: q.passengerId }),
@@ -40,9 +74,15 @@ export class AdminRidesService {
         status: r.status,
         category: r.category,
         tripType: r.tripType,
+        service: r.service,
         pickupAddress: r.pickupAddress,
         dropoffAddress: r.dropoffAddress,
+        pickup: { lat: r.pickupLat, lng: r.pickupLng },
+        dropoff: { lat: r.dropoffLat, lng: r.dropoffLng },
         estimatedFare: r.estimatedFare,
+        offeredFare: r.offeredFare,
+        paymentMethod: r.paymentMethod,
+        scheduledAt: r.scheduledAt,
         fare: r.fare,
         distanceMeters: r.distanceMeters,
         durationSeconds: r.durationSeconds,
@@ -107,5 +147,63 @@ export class AdminRidesService {
           }
         : null,
     };
+  }
+
+  // Support stops a ride that is stuck or wrong (e.g. the driver vanished).
+  // Nobody gets a cancellation strike; both people are told.
+  async cancel(adminId: string, rideId: string, reason: string) {
+    const now = new Date();
+    const { from, driverId, passengerId } = await this.prisma.$transaction(
+      async (tx) => {
+        const rows = await tx.$queryRaw<
+          { status: RideStatus; driverId: string | null; passengerId: string }[]
+        >`SELECT status, "driverId", "passengerId" FROM rides
+          WHERE id = ${rideId}::uuid FOR UPDATE`;
+        const ride = rows[0];
+        if (!ride) throw new NotFoundException('Ride not found');
+        if (!CANCELLABLE.includes(ride.status)) {
+          throw new ConflictException(
+            `A ride that is ${ride.status} can not be cancelled`,
+          );
+        }
+        await tx.ride.update({
+          where: { id: rideId },
+          data: {
+            status: 'cancelled',
+            cancelledBy: 'system',
+            cancelledFromStatus: ride.status,
+            cancelReason: `Cancelled by FAZL support: ${reason}`,
+            cancelledAt: now,
+          },
+        });
+        await tx.rideOffer.updateMany({
+          where: { rideId, status: { in: ['pending', 'bid'] } },
+          data: { status: 'expired', respondedAt: now },
+        });
+        if (ride.driverId && ride.status !== 'scheduled') {
+          // The driver is free to take another ride.
+          await tx.$executeRaw`
+            UPDATE driver_presence SET busy = false, "updatedAt" = now()
+            WHERE "userId" = ${ride.driverId}::uuid`;
+        }
+        return {
+          from: ride.status,
+          driverId: ride.driverId,
+          passengerId: ride.passengerId,
+        };
+      },
+    );
+    await this.audit.log(adminId, 'ride.admin_cancel', 'ride', rideId, {
+      from,
+      reason,
+    });
+    this.events.emit('ride.cancelled', {
+      rideId,
+      by: 'admin',
+      from,
+      driverId,
+      passengerId,
+    });
+    return this.get(rideId);
   }
 }
