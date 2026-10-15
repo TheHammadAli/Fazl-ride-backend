@@ -17,7 +17,11 @@ import {
   type ReviewIssueField,
 } from '../../drivers/driver-requirements.js';
 import { PaginationDto } from '../../common/dto/pagination.dto.js';
-import { DriverStatus, VehicleStatus } from '../../generated/prisma/enums.js';
+import {
+  DriverStatus,
+  Role,
+  VehicleStatus,
+} from '../../generated/prisma/enums.js';
 import { VEHICLE_SERVICES } from '../../vehicle-categories/vehicle-icons.js';
 
 export class ListDriversDto extends PaginationDto {
@@ -64,11 +68,20 @@ export class ListVehiclesDto extends PaginationDto {
 }
 
 export class ListUsersDto extends PaginationDto {
+  // Name, phone or email.
   @IsOptional()
   @Type(() => String)
   @IsString()
-  @MaxLength(20)
+  @MaxLength(40)
   search?: string;
+
+  @IsOptional()
+  @IsIn(['active', 'blocked'])
+  status?: 'active' | 'blocked';
+
+  @IsOptional()
+  @IsEnum(Role)
+  role?: Role;
 }
 
 export class RejectDto {

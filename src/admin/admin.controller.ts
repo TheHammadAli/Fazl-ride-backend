@@ -41,6 +41,11 @@ export class AdminController {
     return this.admin.listUsers(query);
   }
 
+  @Get('users/:id')
+  getUser(@Param('id', ParseUUIDPipe) id: string) {
+    return this.admin.getUser(id);
+  }
+
   @Get('drivers')
   listDrivers(@Query() query: ListDriversDto) {
     return this.admin.listDrivers(query);

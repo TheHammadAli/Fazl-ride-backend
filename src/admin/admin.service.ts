@@ -32,6 +32,13 @@ const driverInclude = {
   documents: { orderBy: { createdAt: 'asc' } },
 } as const;
 
+// What a user row in the admin panel shows.
+const userListInclude = {
+  roles: true,
+  wallet: { select: { balance: true } },
+  _count: { select: { ridesAsPassenger: true, ridesAsDriver: true } },
+} satisfies Prisma.UserInclude;
+
 @Injectable()
 export class AdminService {
   constructor(
@@ -45,26 +52,87 @@ export class AdminService {
     private readonly tiers: VehicleTiersService,
   ) {}
 
-  async listUsers({ page, limit, search }: ListUsersDto) {
-    const where = search
-      ? {
-          OR: [
-            { phone: { contains: search } },
-            { name: { contains: search, mode: 'insensitive' as const } },
-          ],
-        }
-      : {};
-    const [items, total] = await Promise.all([
+  async listUsers({ page, limit, search, status, role }: ListUsersDto) {
+    const q = search?.trim();
+    const matches: Prisma.UserWhereInput = {
+      status: { not: 'deleted' },
+      ...(role && { roles: { some: { role } } }),
+      ...(q && {
+        OR: [
+          { phone: { contains: q } },
+          { name: { contains: q, mode: 'insensitive' } },
+          { email: { contains: q, mode: 'insensitive' } },
+        ],
+      }),
+    };
+    const where: Prisma.UserWhereInput = {
+      ...matches,
+      ...(status && { status }),
+    };
+    const [users, total, byStatus] = await Promise.all([
       this.prisma.user.findMany({
         where,
-        include: { roles: true },
+        include: userListInclude,
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
       }),
       this.prisma.user.count({ where }),
+      this.prisma.user.groupBy({
+        by: ['status'],
+        where: matches,
+        _count: { _all: true },
+      }),
     ]);
-    return { items, total, page, limit };
+    const count = (s: string) =>
+      byStatus.find((r) => r.status === s)?._count._all ?? 0;
+    const items = await Promise.all(users.map((u) => this.presentUser(u)));
+    return {
+      items,
+      total,
+      page,
+      limit,
+      counts: { active: count('active'), blocked: count('blocked') },
+    };
+  }
+
+  async getUser(id: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      include: userListInclude,
+    });
+    if (!user || user.status === 'deleted') {
+      throw new NotFoundException('User not found');
+    }
+    return this.presentUser(user);
+  }
+
+  private async presentUser(
+    u: Prisma.UserGetPayload<{ include: typeof userListInclude }>,
+  ) {
+    return {
+      id: u.id,
+      phone: u.phone,
+      name: u.name,
+      email: u.email,
+      status: u.status,
+      blockedReason: u.blockedReason,
+      roles: u.roles.map((r) => r.role),
+      createdAt: u.createdAt,
+      rating: u.ratingCount
+        ? { average: u.ratingSum / u.ratingCount, count: u.ratingCount }
+        : null,
+      rides: {
+        asPassenger: u._count.ridesAsPassenger,
+        asDriver: u._count.ridesAsDriver,
+      },
+      walletBalance: u.wallet?.balance ?? 0,
+      avatarUrl: u.avatarKey
+        ? await this.storage
+            .createSignedUrl(u.avatarKey, 10 * 60)
+            .catch(() => null)
+        : null,
+    };
   }
 
   async listDrivers({
