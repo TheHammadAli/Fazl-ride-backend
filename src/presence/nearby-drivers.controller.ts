@@ -1,5 +1,7 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { CurrentUser } from '../common/decorators/current-user.decorator.js';
+import type { AuthUser } from '../common/decorators/current-user.decorator.js';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard.js';
 import { DriverLocationStore } from './driver-location.store.js';
 import { NearbyDriversQueryDto } from './dto/nearby-drivers.dto.js';
@@ -18,14 +20,22 @@ export class NearbyDriversController {
   constructor(private readonly locations: DriverLocationStore) {}
 
   @Get('nearby')
-  async nearby(@Query() query: NearbyDriversQueryDto) {
-    const drivers = await this.locations.findNearby({
+  async nearby(
+    @CurrentUser() user: AuthUser,
+    @Query() query: NearbyDriversQueryDto,
+  ) {
+    const found = await this.locations.findNearby({
       lat: query.lat,
       lng: query.lng,
       radiusMeters: query.radiusMeters ?? DEFAULT_RADIUS_METERS,
       category: query.category,
-      limit: MAX_MARKERS,
+      limit: MAX_MARKERS + 1,
     });
+    // A driver looking in Passenger mode is not "a driver near you" to
+    // themselves (they may still be online in the background).
+    const drivers = found
+      .filter((d) => d.userId !== user.id)
+      .slice(0, MAX_MARKERS);
     // Only what a map marker needs - never who the driver is, before they are
     // actually on someone's ride.
     return {
