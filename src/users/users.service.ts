@@ -55,6 +55,9 @@ export class UsersService {
       phone: user.phone,
       name: user.name,
       email: user.email,
+      // A driver's own one is on the driver profile, required to drive.
+      emergencyContact:
+        user.emergencyContact ?? user.driverProfile?.emergencyContact ?? null,
       avatarUrl: await this.avatarUrl(user.avatarKey),
       rating: ratingView(user.ratingSum, user.ratingCount),
       roles: user.roles.map((r) => r.role),
@@ -72,13 +75,27 @@ export class UsersService {
   async updateMe(userId: string, dto: UpdateUserDto) {
     const current = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
-      select: { name: true },
+      select: { name: true, phone: true },
     });
+    if (dto.emergencyContact === current.phone) {
+      throw new BadRequestException(
+        "The emergency contact must be someone else's number",
+      );
+    }
+    const data = {
+      name: dto.name,
+      email: dto.email,
+      // '' removes it.
+      emergencyContact:
+        dto.emergencyContact === undefined
+          ? undefined
+          : dto.emergencyContact || null,
+    };
     const nameChanged =
       dto.name !== undefined && dto.name.trim() !== (current.name ?? '').trim();
     if (nameChanged) await this.driverIdentity.beforeChange(userId);
     try {
-      await this.prisma.user.update({ where: { id: userId }, data: dto });
+      await this.prisma.user.update({ where: { id: userId }, data });
     } catch (error: any) {
       if (error?.code === 'P2002') {
         throw new ConflictException('Email is already in use');
