@@ -30,6 +30,7 @@ import { PushModule } from './push/push.module.js';
 import { AdminStatsModule } from './admin-stats/admin-stats.module.js';
 import { PlacesModule } from './places/places.module.js';
 import { SafetyModule } from './safety/safety.module.js';
+import { SupportModule } from './support/support.module.js';
 import { SavedPlacesModule } from './saved-places/saved-places.module.js';
 import { LevelsModule } from './levels/levels.module.js';
 
@@ -59,6 +60,7 @@ import { LevelsModule } from './levels/levels.module.js';
     PushModule,
     SavedPlacesModule,
     SafetyModule,
+    SupportModule,
     PlacesModule,
     AdminStatsModule,
     LevelsModule,
