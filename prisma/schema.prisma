@@ -1098,6 +1098,8 @@ model SafetyAlert {
   resolvedAt       DateTime?
   resolvedById     String?           @db.Uuid
   resolution       String?
+  // When the safety team was alerted again because nobody took it.
+  realertedAt      DateTime?
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
 
@@ -1107,4 +1109,16 @@ model SafetyAlert {
   @@index([status, createdAt])
   @@index([userId, status])
   @@map("safety_alerts")
+}
+
+// Who gets an SOS on their phone (a loud push), by phone number: they need
+// the FAZL Ride app signed in with that number. Kept by number, not user, so
+// someone can be added before they first sign in.
+model SafetyTeamMember {
+  id        String   @id @default(uuid()) @db.Uuid
+  phone     String   @unique
+  label     String?
+  createdAt DateTime @default(now())
+
+  @@map("safety_team_members")
 }
