@@ -53,12 +53,12 @@ enum VehicleStatus {
 // an unrecognised iconKey just falls back to a generic vehicle icon on
 // clients until they are updated to recognise it.
 model VehicleCategory {
-  key       String   @id
-  label     String
-  iconKey   String
+  key         String   @id
+  label       String
+  iconKey     String
   // Which service lists it: 'ride' (passengers) or 'freight' (goods: loader
   // rickshaw, pickup, truck, dumper...).
-  service   String   @default("ride")
+  service     String   @default("ride")
   // Ride tiers (Mini, AC, Business...): set on a tier, the base type its
   // vehicles are registered as (car). Null for a base type. A tier with no
   // requirement below is open to every vehicle of the base type; one with a
@@ -70,10 +70,10 @@ model VehicleCategory {
   minYear     Int?
   // Lowercase make/model words a vehicle must match (empty = any).
   models      String[] @default([])
-  active    Boolean  @default(true)
-  sortOrder Int      @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  active      Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   vehicles        Vehicle[]
   rides           Ride[]
@@ -95,30 +95,33 @@ enum DocumentType {
 }
 
 model User {
-  id            String     @id @default(uuid()) @db.Uuid
-  phone         String     @unique
-  name          String?
-  email         String?    @unique
+  id               String     @id @default(uuid()) @db.Uuid
+  phone            String     @unique
+  name             String?
+  email            String?    @unique
   // Only set for web-admin accounts (email + password login); everyone else uses an OTP.
-  passwordHash  String?
-  avatarKey     String?
-  status        UserStatus @default(active)
-  blockedReason String?
+  passwordHash     String?
+  avatarKey        String?
+  // Someone to call or alert in an emergency (SOS). Drivers keep theirs on
+  // the driver profile too, where it is required to drive.
+  emergencyContact String?
+  status           UserStatus @default(active)
+  blockedReason    String?
   // Sum and number of star ratings received, so the average is cheap to show on cards.
-  ratingSum     Int        @default(0)
-  ratingCount   Int        @default(0)
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
+  ratingSum        Int        @default(0)
+  ratingCount      Int        @default(0)
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
 
   roles             UserRole[]
   refreshTokens     RefreshToken[]
   driverProfile     DriverProfile?
-  ridesAsPassenger  Ride[]             @relation("RidePassenger")
-  ridesAsDriver     Ride[]             @relation("RideDriver")
+  ridesAsPassenger  Ride[]              @relation("RidePassenger")
+  ridesAsDriver     Ride[]              @relation("RideDriver")
   rideOffers        RideOffer[]
   cancellations     RideCancellation[]
-  ratingsGiven      RideRating[]       @relation("RatingRater")
-  ratingsReceived   RideRating[]       @relation("RatingRatee")
+  ratingsGiven      RideRating[]        @relation("RatingRater")
+  ratingsReceived   RideRating[]        @relation("RatingRatee")
   earnings          DriverEarning[]
   sentRideMessages  RideMessage[]
   driverDestination DriverDestination?
@@ -128,6 +131,7 @@ model User {
   devices           DeviceToken[]
   savedPlaces       SavedPlace[]
   rideSchedules     RideSchedule[]
+  safetyAlerts      SafetyAlert[]       @relation("SafetyAlertUser")
 
   @@map("users")
 }
@@ -415,9 +419,9 @@ model Ride {
   // style); see BookingSettings for the windows.
   scheduledAt     DateTime?
   // The confirmed driver never started the booking.
-  noShow          Boolean   @default(false)
+  noShow          Boolean    @default(false)
   // Made by a Frequent traveler schedule (one booking per day it runs).
-  scheduleId      String?   @db.Uuid
+  scheduleId      String?    @db.Uuid
   // 'ride' or 'freight'. A freight booking goes to every nearby driver of
   // its vehicle type, who accept or counter the offered fare.
   service         String     @default("ride")
@@ -509,15 +513,16 @@ model Ride {
   earningEntries  DriverEarning[]
   messages        RideMessage[]
   reminders       BookingReminder[]
-  schedule        RideSchedule?     @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+  safetyAlerts    SafetyAlert[]
+  schedule        RideSchedule?      @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
 
+  @@unique([scheduleId, scheduledAt])
   @@index([passengerId, status])
   @@index([driverId, status])
   @@index([status, expiresAt])
   @@index([category])
   @@index([tripType])
   @@index([status, scheduledAt])
-  @@unique([scheduleId, scheduledAt])
   @@map("rides")
 }
 
@@ -912,45 +917,45 @@ model DeviceToken {
 // Minutes are relative to the booked time. "ride" = within a city,
 // "freight" = goods, "intercity" = a city to city ride.
 model BookingSettings {
-  id                  Int      @id @default(1)
-  minAheadMinutes     Int      @default(30)
-  maxAheadDays        Int      @default(7)
-  maxPerPassenger     Int      @default(3)
+  id                   Int      @id @default(1)
+  minAheadMinutes      Int      @default(30)
+  maxAheadDays         Int      @default(7)
+  maxPerPassenger      Int      @default(3)
   // Drivers see open bookings within this distance of where they last were.
-  reservationRadiusKm Int      @default(30)
+  reservationRadiusKm  Int      @default(30)
   // When the confirmed driver may press Start: from this long before the
   // time until this long after it.
-  rideStartBefore      Int     @default(60)
-  rideStartAfter       Int     @default(30)
-  freightStartBefore   Int     @default(90)
-  freightStartAfter    Int     @default(60)
-  intercityStartBefore Int     @default(120)
-  intercityStartAfter  Int     @default(60)
+  rideStartBefore      Int      @default(60)
+  rideStartAfter       Int      @default(30)
+  freightStartBefore   Int      @default(90)
+  freightStartAfter    Int      @default(60)
+  intercityStartBefore Int      @default(120)
+  intercityStartAfter  Int      @default(60)
   // Nobody confirmed yet: the customer is warned this long before (twice);
   // the booking closes at the booked time.
-  rideWarnFirst        Int     @default(60)
-  rideWarnSecond       Int     @default(30)
-  freightWarnFirst     Int     @default(120)
-  freightWarnSecond    Int     @default(60)
-  intercityWarnFirst   Int     @default(360)
-  intercityWarnSecond  Int     @default(120)
+  rideWarnFirst        Int      @default(60)
+  rideWarnSecond       Int      @default(30)
+  freightWarnFirst     Int      @default(120)
+  freightWarnSecond    Int      @default(60)
+  intercityWarnFirst   Int      @default(360)
+  intercityWarnSecond  Int      @default(120)
   // Reminders: both people this long before; the driver to press Start this
   // long before; and the evening before (hour of the day, business time).
-  reminderMinutes      Int     @default(60)
-  startNudgeMinutes    Int     @default(15)
-  eveningReminderHour  Int     @default(21)
+  reminderMinutes      Int      @default(60)
+  startNudgeMinutes    Int      @default(15)
+  eveningReminderHour  Int      @default(21)
   // Giving up a confirmed booking this close to the time counts against the
   // driver, like not coming at all.
-  lateReleaseMinutes   Int     @default(120)
+  lateReleaseMinutes   Int      @default(120)
   // This many no-shows / late releases within the window stop a driver
   // taking bookings for this many days.
-  noShowLimit          Int     @default(3)
-  noShowWindowDays     Int     @default(30)
-  noShowBlockDays      Int     @default(7)
+  noShowLimit          Int      @default(3)
+  noShowWindowDays     Int      @default(30)
+  noShowBlockDays      Int      @default(7)
   // Frequent traveler: each day's booking is made this many hours ahead,
   // and a customer can keep this many schedules.
-  scheduleAheadHours   Int     @default(24)
-  maxSchedules         Int     @default(5)
+  scheduleAheadHours   Int      @default(24)
+  maxSchedules         Int      @default(5)
   updatedAt            DateTime @updatedAt
 
   @@map("booking_settings")
@@ -991,31 +996,31 @@ model SavedPlace {
 // school). A booking for later is made for each day a while ahead and goes
 // through the usual Ride Later flow (drivers offer, the customer confirms).
 model RideSchedule {
-  id          String   @id @default(uuid()) @db.Uuid
-  passengerId String   @db.Uuid
-  name        String?
+  id             String        @id @default(uuid()) @db.Uuid
+  passengerId    String        @db.Uuid
+  name           String?
   pickupLat      Float
   pickupLng      Float
   pickupAddress  String
   dropoffLat     Float
   dropoffLng     Float
   dropoffAddress String
-  category    String
-  tripType    TripType @default(within_city)
+  category       String
+  tripType       TripType      @default(within_city)
   // Days it runs, 1 = Monday ... 7 = Sunday.
-  days        Int[]
+  days           Int[]
   // Minutes after midnight, business time (8:30 = 510).
-  timeMinutes Int
+  timeMinutes    Int
   // What the customer offers each day; null = the suggested price.
-  offeredFare Int?
-  paymentMethod PaymentMethod @default(cash)
-  active      Boolean  @default(true)
+  offeredFare    Int?
+  paymentMethod  PaymentMethod @default(cash)
+  active         Boolean       @default(true)
   // Driver confirmed last time: told first about the next day's booking.
-  lastDriverId String? @db.Uuid
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  lastDriverId   String?       @db.Uuid
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
 
-  passenger User              @relation(fields: [passengerId], references: [id], onDelete: Cascade)
+  passenger User               @relation(fields: [passengerId], references: [id], onDelete: Cascade)
   rides     Ride[]
   skips     RideScheduleSkip[]
 
@@ -1040,26 +1045,66 @@ model RideScheduleSkip {
 // edited by admins. Lifetime: completed trips (rides and freight) only ever
 // go up, so a level is never lost. Each level carries rewards.
 model DriverLevel {
-  key       String   @id
-  name      String
+  key                String   @id
+  name               String
   // Completed trips needed.
-  minRides  Int
+  minRides           Int
   // Badge colour (hex) and icon for the apps.
-  color     String   @default("#9CA3AF")
-  icon      String   @default("star")
-  active    Boolean  @default(true)
+  color              String   @default("#9CA3AF")
+  icon               String   @default("star")
+  active             Boolean  @default(true)
   // Rewards. Percentage points off the commission on every trip.
-  commissionDiscount Float @default(0)
+  commissionDiscount Float    @default(0)
   // Paid into the wallet once, when the level is reached.
-  bonus              Int   @default(0)
+  bonus              Int      @default(0)
   // Counts as this many metres closer when choosing who gets a request.
-  priorityMeters     Int   @default(0)
+  priorityMeters     Int      @default(0)
   // A lower dues limit than everyone else's (e.g. -1000); null = the usual.
   minBalance         Int?
   // Rewards only written down (free car wash...), handed out by the team.
   perks              String[] @default([])
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   @@map("driver_levels")
+}
+
+enum SafetyAlertStatus {
+  // Raised, nobody at FAZL has picked it up yet.
+  open
+  // Support is on it (has called, is watching the location).
+  acknowledged
+  // Support closed it, with what happened.
+  resolved
+  // The person said they are safe before support closed it.
+  cancelled
+}
+
+// An SOS from a passenger or a driver: who, on which ride, and where they
+// are (kept fresh while the alert is open). Support sees it in the admin
+// panel straight away.
+model SafetyAlert {
+  id               String            @id @default(uuid()) @db.Uuid
+  userId           String            @db.Uuid
+  // 'passenger' or 'driver' on this ride.
+  role             String
+  rideId           String?           @db.Uuid
+  status           SafetyAlertStatus @default(open)
+  lat              Float
+  lng              Float
+  locationAt       DateTime          @default(now())
+  acknowledgedAt   DateTime?
+  acknowledgedById String?           @db.Uuid
+  resolvedAt       DateTime?
+  resolvedById     String?           @db.Uuid
+  resolution       String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  user User  @relation("SafetyAlertUser", fields: [userId], references: [id])
+  ride Ride? @relation(fields: [rideId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([userId, status])
+  @@map("safety_alerts")
 }
