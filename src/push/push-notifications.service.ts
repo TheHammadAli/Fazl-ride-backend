@@ -216,6 +216,14 @@ export class PushNotificationsService implements OnModuleInit, OnModuleDestroy {
           channel: 'general',
         });
 
+      case 'safety.acknowledged':
+        return this.devices.notify([p.userId], {
+          title: 'FAZL support is on it',
+          body: 'We have your SOS and your location. Keep your phone with you.',
+          data: { type: 'sos' },
+          channel: 'general',
+        });
+
       case 'wallet.change_received':
         return this.devices.notify([p.userId], {
           title: `${rs(p.amount)} added to your wallet`,
