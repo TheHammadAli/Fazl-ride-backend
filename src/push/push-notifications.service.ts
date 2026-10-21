@@ -216,6 +216,25 @@ export class PushNotificationsService implements OnModuleInit, OnModuleDestroy {
           channel: 'general',
         });
 
+      case 'safety.sos':
+        if (!p.teamUserIds?.length) return;
+        return this.devices.notify(p.teamUserIds, {
+          title: p.again
+            ? `SOS still waiting: ${p.name ?? p.phone}`
+            : `SOS: ${p.name ?? p.phone} needs help`,
+          body: `${p.role === 'driver' ? 'Driver' : 'Passenger'} ${p.phone}. Tap to call them and see where they are.`,
+          data: {
+            type: 'sos_alert',
+            alertId: p.alertId,
+            name: p.name ?? '',
+            phone: p.phone,
+            lat: String(p.lat),
+            lng: String(p.lng),
+          },
+          channel: 'sos',
+          tag: `sos:${p.alertId}`,
+        });
+
       case 'safety.acknowledged':
         return this.devices.notify([p.userId], {
           title: 'FAZL support is on it',

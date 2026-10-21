@@ -4,9 +4,9 @@ export interface PushMessage {
   title: string;
   body: string;
   data: Record<string, string>;
-  // Android channel the app created: "ride_requests" (loud, heads-up) or
-  // "general".
-  channel: 'ride_requests' | 'general';
+  // Android channel the app created: "ride_requests" (loud, heads-up),
+  // "sos" (alarm, for the safety team) or "general".
+  channel: 'ride_requests' | 'sos' | 'general';
   // Drop it if it cannot be delivered in time (a ride offer is useless once
   // it has expired).
   ttlSeconds?: number;

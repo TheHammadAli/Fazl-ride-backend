@@ -53,6 +53,34 @@ function setup(ride: Record<string, unknown> = {}) {
 }
 
 describe('PushNotificationsService', () => {
+  it('rings the safety team on an SOS, louder wording when nobody took it', async () => {
+    const { events, sent, settle } = setup();
+    const sos = {
+      alertId: 'a1',
+      userId: 'u1',
+      role: 'passenger',
+      name: 'Sara',
+      phone: '+923001110001',
+      lat: 33.7,
+      lng: 73.07,
+      teamUserIds: ['t1', 't2'],
+    };
+    events.emit('safety.sos', { ...sos, again: false });
+    events.emit('safety.sos', { ...sos, again: true });
+    events.emit('safety.sos', { ...sos, again: false, teamUserIds: [] });
+    await settle();
+    expect(sent).toHaveLength(2);
+    expect(sent[0].to).toEqual(['t1', 't2']);
+    expect(sent[0].message.channel).toBe('sos');
+    expect(sent[0].message.title).toBe('SOS: Sara needs help');
+    expect(sent[0].message.data).toMatchObject({
+      type: 'sos_alert',
+      phone: '+923001110001',
+      lat: '33.7',
+    });
+    expect(sent[1].message.title).toBe('SOS still waiting: Sara');
+  });
+
   it('rings the driver for a new ride request, only while it is open', async () => {
     const { events, sent, settle } = setup();
     events.emit('ride.offer.created', {
