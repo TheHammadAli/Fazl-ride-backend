@@ -29,6 +29,7 @@ import { WalletModule } from './wallet/wallet.module.js';
 import { PushModule } from './push/push.module.js';
 import { AdminStatsModule } from './admin-stats/admin-stats.module.js';
 import { PlacesModule } from './places/places.module.js';
+import { SafetyModule } from './safety/safety.module.js';
 import { SavedPlacesModule } from './saved-places/saved-places.module.js';
 import { LevelsModule } from './levels/levels.module.js';
 
@@ -57,6 +58,7 @@ import { LevelsModule } from './levels/levels.module.js';
     WalletModule,
     PushModule,
     SavedPlacesModule,
+    SafetyModule,
     PlacesModule,
     AdminStatsModule,
     LevelsModule,
