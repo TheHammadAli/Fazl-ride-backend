@@ -314,3 +314,12 @@ A ride under way whose driver went silent used to stay open forever (the presenc
 - Any ride under way requested more than `STALE_RIDE_HOURS` (24) ago -> `too_old`. Bookings for later (`scheduled`) are never touched.
 - Closing reuses the admin cancel path (`AdminRidesService.close`, re-checked under the row lock so a position that just arrived wins): `cancelled`, `cancelledBy = system`, the reason text as `cancelReason`, offers expired, driver freed, no strike, audited `ride.auto_close`, admin notification `ride_closed` (opens the ride in Live Rides), and `ride.cancelled` with `by: 'system'` pushes both people the reason.
 - Verified on a throwaway DB (11 checks: quiet driver closed, moving driver and a 30-min-silent trip kept, 2-hour-silent trip closed, passenger can book again).
+
+## SOS / safety alerts (2026-10-21, user: "professional bnao", no SMS provider yet)
+Module `src/safety/`, migration `20261021090000_safety_alerts`.
+- `safety_alerts`: who (`userId`, `role` passenger/driver), `rideId` (the one given, else the person's ride under way), `status` open -> acknowledged -> resolved, or cancelled by the person; live `lat/lng/locationAt`; who acknowledged/resolved and the `resolution` note.
+- App: `POST safety/sos {lat,lng,rideId?}` (pressing again while live only moves it), `POST safety/sos/:id/location` (every 10 s while the screen is open; returns the status so the app sees support take it), `POST safety/sos/:id/cancel` ("I'm safe"), `GET safety/sos/active`. Responses carry `contactMessaged`.
+- Admin: `GET admin/safety-alerts?status|active=true` (+ `counts`), `GET admin/safety-alerts/:id` (person, emergency contact, ride with passenger/driver/vehicle), `POST .../acknowledge`, `POST .../resolve {resolution}`. Raising creates an admin notification (`type sos`, `targetType safety_alert`); acknowledging pushes the person "FAZL support is on it" (`data.type = sos`). All audited.
+- Emergency contact: `users.emergencyContact` (passengers; drivers' stays on the driver profile), `PATCH users/me {emergencyContact}` ('' removes it, own number refused), returned on `users/me`.
+- `EmergencyContactNotifier` adapter: bound to a logging one (`enabled = false`) until an SMS provider exists; the app then says only that FAZL support got it and offers "Text them your location" (opens the phone's SMS app). There is no API to alert Police (15) or Rescue (1122); the app only dials them.
+- Admin panel: Safety (SOS) page, red sidebar count, a red banner with a beep on every page while an alert waits.
