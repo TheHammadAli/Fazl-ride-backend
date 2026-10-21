@@ -132,6 +132,9 @@ model User {
   savedPlaces       SavedPlace[]
   rideSchedules     RideSchedule[]
   safetyAlerts      SafetyAlert[]       @relation("SafetyAlertUser")
+  supportTickets    SupportTicket[]     @relation("TicketUser")
+  ticketsAgainst    SupportTicket[]     @relation("TicketAgainst")
+  ticketMessages    SupportMessage[]
 
   @@map("users")
 }
@@ -514,6 +517,7 @@ model Ride {
   messages        RideMessage[]
   reminders       BookingReminder[]
   safetyAlerts    SafetyAlert[]
+  supportTickets  SupportTicket[]
   schedule        RideSchedule?      @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
 
   @@unique([scheduleId, scheduledAt])
@@ -1121,4 +1125,76 @@ model SafetyTeamMember {
   createdAt DateTime @default(now())
 
   @@map("safety_team_members")
+}
+
+enum SupportTicketStatus {
+  // New, nobody at FAZL has answered yet.
+  open
+  // Support answered or is looking into it.
+  in_progress
+  // Support closed it with what was done.
+  resolved
+}
+
+enum SupportPriority {
+  low
+  medium
+  high
+  urgent
+}
+
+// A complaint or question from a passenger or a driver, usually about one
+// ride (Careem/Uber "Help with this trip"). The conversation is in
+// support_messages; support closes it with what was done (and may refund).
+model SupportTicket {
+  id             String              @id @default(uuid()) @db.Uuid
+  // Shown to people as #FZ-000123.
+  number         Int                 @unique @default(autoincrement())
+  userId         String              @db.Uuid
+  // 'passenger' or 'driver' on that ride (or in the app).
+  role           String
+  rideId         String?             @db.Uuid
+  // The other person on the ride, if the complaint is about them.
+  againstUserId  String?             @db.Uuid
+  category       String
+  priority       SupportPriority
+  status         SupportTicketStatus @default(open)
+  description    String
+  assignedToId   String?             @db.Uuid
+  firstReplyAt   DateTime?
+  resolvedAt     DateTime?
+  resolvedById   String?             @db.Uuid
+  resolution     String?
+  // Whole PKR put into the person's wallet when it was resolved.
+  refundAmount   Int?
+  // Last time the person or support wrote, for sorting.
+  lastActivityAt DateTime            @default(now())
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  user     User             @relation("TicketUser", fields: [userId], references: [id])
+  against  User?            @relation("TicketAgainst", fields: [againstUserId], references: [id])
+  ride     Ride?            @relation(fields: [rideId], references: [id], onDelete: SetNull)
+  messages SupportMessage[]
+
+  @@index([status, priority, createdAt])
+  @@index([userId, createdAt])
+  @@index([rideId])
+  @@map("support_tickets")
+}
+
+model SupportMessage {
+  id          String   @id @default(uuid()) @db.Uuid
+  ticketId    String   @db.Uuid
+  authorId    String   @db.Uuid
+  // Written by FAZL support (shown as "FAZL Support", never the admin's name).
+  fromSupport Boolean
+  body        String
+  createdAt   DateTime @default(now())
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  author User          @relation(fields: [authorId], references: [id])
+
+  @@index([ticketId, createdAt])
+  @@map("support_messages")
 }
