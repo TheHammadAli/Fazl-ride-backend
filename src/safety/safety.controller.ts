@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   Param,
@@ -17,6 +18,7 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../common/guards/roles.guard.js';
 import { Role } from '../generated/prisma/enums.js';
 import {
+  AddSafetyTeamMemberDto,
   ListSafetyAlertsDto,
   RaiseSosDto,
   ResolveSafetyAlertDto,
@@ -99,5 +101,33 @@ export class AdminSafetyController {
     @Body() dto: ResolveSafetyAlertDto,
   ) {
     return this.safety.resolve(user.id, id, dto.resolution);
+  }
+}
+
+// Who gets SOS alerts on their phone.
+@ApiTags('admin')
+@ApiBearerAuth()
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.admin, Role.super_admin)
+@Controller('admin/safety-team')
+export class AdminSafetyTeamController {
+  constructor(private readonly safety: SafetyService) {}
+
+  @Get()
+  list() {
+    return this.safety.team();
+  }
+
+  @Post()
+  add(@CurrentUser() user: AuthUser, @Body() dto: AddSafetyTeamMemberDto) {
+    return this.safety.addMember(user.id, dto.phone, dto.label);
+  }
+
+  @Delete(':id')
+  remove(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.safety.removeMember(user.id, id);
   }
 }

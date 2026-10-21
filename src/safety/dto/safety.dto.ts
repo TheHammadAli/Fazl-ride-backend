@@ -7,6 +7,7 @@ import {
   MinLength,
 } from 'class-validator';
 import { LatLngDto } from '../../common/dto/geo.dto.js';
+import { IsPkPhone } from '../../common/dto/phone.decorator.js';
 import { PaginationDto } from '../../common/dto/pagination.dto.js';
 import { SafetyAlertStatus } from '../../generated/prisma/enums.js';
 
@@ -35,4 +36,15 @@ export class ResolveSafetyAlertDto {
   @MinLength(3)
   @MaxLength(500)
   resolution: string;
+}
+
+export class AddSafetyTeamMemberDto {
+  @IsPkPhone()
+  phone: string;
+
+  // Who it is ("Night shift - Ahmed").
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  label?: string;
 }

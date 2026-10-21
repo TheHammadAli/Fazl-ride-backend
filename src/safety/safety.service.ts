@@ -91,7 +91,15 @@ export class SafetyService {
       rideId: ride?.id ?? null,
       role,
     });
-    this.events.emit('safety.sos', { alertId: alert.id, userId, role });
+    await this.alertTeam(alert.id, {
+      userId,
+      role,
+      name: user.name,
+      phone: user.phone,
+      lat: input.lat,
+      lng: input.lng,
+      again: false,
+    });
 
     const contact =
       user.emergencyContact ?? user.driverProfile?.emergencyContact ?? null;
@@ -163,6 +171,138 @@ export class SafetyService {
       // So the app says only what really happened.
       contactMessaged: this.contactNotifier.enabled,
     };
+  }
+
+  // ------------------------------------------------------------ safety team
+
+  // A loud push to every safety-team phone (not the person's own). `again`:
+  // nobody has taken it yet, sent once more.
+  async alertTeam(
+    alertId: string,
+    who: {
+      userId: string;
+      role: string;
+      name: string | null;
+      phone: string;
+      lat: number;
+      lng: number;
+      again: boolean;
+    },
+  ) {
+    const team = await this.teamUserIds();
+    this.events.emit('safety.sos', {
+      alertId,
+      ...who,
+      teamUserIds: team.filter((id) => id !== who.userId),
+    });
+  }
+
+  private async teamUserIds() {
+    const members = await this.prisma.safetyTeamMember.findMany({
+      select: { phone: true },
+    });
+    if (!members.length) return [];
+    const users = await this.prisma.user.findMany({
+      where: { phone: { in: members.map((m) => m.phone) }, status: 'active' },
+      select: { id: true },
+    });
+    return users.map((u) => u.id);
+  }
+
+  // The list, with whether each number can really receive an alert now:
+  // signed in to the app on at least one phone.
+  async team() {
+    const members = await this.prisma.safetyTeamMember.findMany({
+      orderBy: { createdAt: 'asc' },
+    });
+    const users = await this.prisma.user.findMany({
+      where: { phone: { in: members.map((m) => m.phone) } },
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        status: true,
+        _count: { select: { devices: true } },
+      },
+    });
+    const byPhone = new Map(users.map((u) => [u.phone, u]));
+    const items = members.map((m) => {
+      const user = byPhone.get(m.phone);
+      const devices = user?.status === 'active' ? user._count.devices : 0;
+      return {
+        id: m.id,
+        phone: m.phone,
+        label: m.label,
+        createdAt: m.createdAt,
+        user: user ? { id: user.id, name: user.name } : null,
+        devices,
+        ready: devices > 0,
+      };
+    });
+    return { items, ready: items.filter((i) => i.ready).length };
+  }
+
+  async addMember(adminId: string, phone: string, label?: string) {
+    try {
+      const member = await this.prisma.safetyTeamMember.create({
+        data: { phone, label: label?.trim() || null },
+      });
+      await this.audit.log(
+        adminId,
+        'safety.team_add',
+        'safety_team',
+        member.id,
+        {
+          phone,
+        },
+      );
+    } catch (error: any) {
+      if (error?.code === 'P2002') {
+        throw new ConflictException('This number is already on the team');
+      }
+      throw error;
+    }
+    return this.team();
+  }
+
+  async removeMember(adminId: string, id: string) {
+    const { count } = await this.prisma.safetyTeamMember.deleteMany({
+      where: { id },
+    });
+    if (!count) throw new NotFoundException('Not on the team');
+    await this.audit.log(adminId, 'safety.team_remove', 'safety_team', id);
+    return this.team();
+  }
+
+  // Alerts still open (nobody pressed "I'm on it") after [afterSeconds]:
+  // the team is alerted once more. Returns how many.
+  async realertWaiting(afterSeconds: number, now = new Date()) {
+    const before = new Date(now.getTime() - afterSeconds * 1000);
+    const waiting = await this.prisma.safetyAlert.findMany({
+      where: { status: 'open', realertedAt: null, createdAt: { lte: before } },
+      include: { user: { select: { name: true, phone: true } } },
+      take: 100,
+    });
+    let sent = 0;
+    for (const a of waiting) {
+      // Claim it first so two instances never both send.
+      const { count } = await this.prisma.safetyAlert.updateMany({
+        where: { id: a.id, status: 'open', realertedAt: null },
+        data: { realertedAt: now },
+      });
+      if (!count) continue;
+      await this.alertTeam(a.id, {
+        userId: a.userId,
+        role: a.role,
+        name: a.user.name,
+        phone: a.user.phone,
+        lat: a.lat,
+        lng: a.lng,
+        again: true,
+      });
+      sent++;
+    }
+    return sent;
   }
 
   // ---------------------------------------------------------------- admin

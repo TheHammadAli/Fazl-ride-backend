@@ -7,15 +7,22 @@ import {
 } from './emergency-contact-notifier.js';
 import {
   AdminSafetyController,
+  AdminSafetyTeamController,
   SafetyController,
 } from './safety.controller.js';
+import { SafetySweeperService } from './safety-sweeper.service.js';
 import { SafetyService } from './safety.service.js';
 
 @Module({
   imports: [AuthModule, AdminNotificationsModule],
-  controllers: [SafetyController, AdminSafetyController],
+  controllers: [
+    SafetyController,
+    AdminSafetyController,
+    AdminSafetyTeamController,
+  ],
   providers: [
     SafetyService,
+    SafetySweeperService,
     // Swap for an SMS adapter once a provider is chosen.
     {
       provide: EmergencyContactNotifier,
