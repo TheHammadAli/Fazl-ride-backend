@@ -216,6 +216,24 @@ export class PushNotificationsService implements OnModuleInit, OnModuleDestroy {
           channel: 'general',
         });
 
+      case 'support.reply':
+        return this.devices.notify([p.userId], {
+          title: `FAZL Support replied (#${p.code})`,
+          body: 'Tap to read the reply about your report.',
+          data: { type: 'support', ticketId: p.ticketId },
+          channel: 'general',
+        });
+
+      case 'support.resolved':
+        return this.devices.notify([p.userId], {
+          title: `Your report #${p.code} is resolved`,
+          body: p.refundAmount
+            ? `${rs(p.refundAmount)} has been added to your wallet.`
+            : 'Tap to see what we did.',
+          data: { type: 'support', ticketId: p.ticketId },
+          channel: 'general',
+        });
+
       case 'safety.sos':
         if (!p.teamUserIds?.length) return;
         return this.devices.notify(p.teamUserIds, {
