@@ -5,6 +5,10 @@ import { PassportModule } from '@nestjs/passport';
 import { AdminBootstrapService } from './admin-bootstrap.service.js';
 import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
+import {
+  GoogleCertsVerifier,
+  GoogleIdTokenVerifier,
+} from './google/google-id-token.verifier.js';
 import { JwtStrategy } from './jwt.strategy.js';
 import { ConsoleSmsProvider } from './sms/console-sms.provider.js';
 import { SmsProvider } from './sms/sms.provider.js';
@@ -27,6 +31,7 @@ import { SmsProvider } from './sms/sms.provider.js';
     AdminBootstrapService,
     JwtStrategy,
     { provide: SmsProvider, useClass: ConsoleSmsProvider },
+    { provide: GoogleIdTokenVerifier, useClass: GoogleCertsVerifier },
   ],
 })
 export class AuthModule {}

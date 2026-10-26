@@ -216,6 +216,7 @@ export class UsersService {
           phone: `deleted:${userId}`,
           name: null,
           email: null,
+          googleId: null,
           avatarKey: null,
           blockedReason: null,
           status: 'deleted',

@@ -4,6 +4,8 @@ import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service.js';
 import {
   AdminLoginDto,
+  CompleteGoogleSignInDto,
+  GoogleSignInDto,
   RefreshTokenDto,
   RequestOtpDto,
   VerifyOtpDto,
@@ -27,6 +29,31 @@ export class AuthController {
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   verifyOtp(@Body() dto: VerifyOtpDto) {
     return this.auth.verifyOtp(dto.phone, dto.code);
+  }
+
+  // "Continue with Google". A linked Google account (or one whose email an
+  // account already has) gets the login tokens; a new one gets
+  // { needsPhone, name, email } and finishes at google/complete.
+  @Post('google')
+  @HttpCode(200)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  googleSignIn(@Body() dto: GoogleSignInDto) {
+    return this.auth.googleSignIn(dto.idToken);
+  }
+
+  // A first "Continue with Google": the mobile number is verified with the
+  // code from otp/request, then linked to the Google account; registers the
+  // user if the number is new. Returns the login tokens.
+  @Post('google/complete')
+  @HttpCode(200)
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  completeGoogleSignIn(@Body() dto: CompleteGoogleSignInDto) {
+    return this.auth.completeGoogleSignIn(
+      dto.idToken,
+      dto.name,
+      dto.phone,
+      dto.code,
+    );
   }
 
   // The web admin panel logs in with email + password instead of an OTP.

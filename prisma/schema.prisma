@@ -99,6 +99,9 @@ model User {
   phone            String     @unique
   name             String?
   email            String?    @unique
+  // The Google account ("sub") linked by "Continue with Google": signs in
+  // with Google from then on. Set once the phone number is verified too.
+  googleId         String?    @unique
   // Only set for web-admin accounts (email + password login); everyone else uses an OTP.
   passwordHash     String?
   avatarKey        String?
