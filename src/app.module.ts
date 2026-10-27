@@ -33,6 +33,7 @@ import { SafetyModule } from './safety/safety.module.js';
 import { SupportModule } from './support/support.module.js';
 import { BroadcastsModule } from './broadcasts/broadcasts.module.js';
 import { AppSettingsModule } from './app-settings/app-settings.module.js';
+import { PromosModule } from './promos/promos.module.js';
 import { ServiceAreasModule } from './service-areas/service-areas.module.js';
 import { SavedPlacesModule } from './saved-places/saved-places.module.js';
 import { LevelsModule } from './levels/levels.module.js';
@@ -67,6 +68,7 @@ import { LevelsModule } from './levels/levels.module.js';
     BroadcastsModule,
     AppSettingsModule,
     ServiceAreasModule,
+    PromosModule,
     PlacesModule,
     AdminStatsModule,
     LevelsModule,
