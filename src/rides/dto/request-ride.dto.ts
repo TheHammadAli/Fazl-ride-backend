@@ -134,6 +134,12 @@ export class RequestRideDto {
   @IsOptional()
   @IsEnum(PaymentMethod)
   paymentMethod?: PaymentMethod;
+
+  // A promo code (POST promos/check first); comes off the final fare.
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  promoCode?: string;
 }
 
 export class CancelRideDto {

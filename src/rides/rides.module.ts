@@ -1,3 +1,4 @@
+import { PromosModule } from '../promos/promos.module.js';
 import { ServiceAreasModule } from '../service-areas/service-areas.module.js';
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module.js';
@@ -43,6 +44,7 @@ import { ReservationsService } from './reservations.service.js';
     LevelsModule,
     AdminNotificationsModule,
     ServiceAreasModule,
+    PromosModule,
   ],
   controllers: [
     AdminBookingSettingsController,

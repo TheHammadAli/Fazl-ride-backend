@@ -31,6 +31,9 @@ export const rideInclude = {
       category: true,
     },
   },
+  promoRedemption: {
+    select: { status: true, discount: true, promo: { select: { code: true } } },
+  },
 } satisfies Prisma.RideInclude;
 
 export type RideWithRelations = Prisma.RideGetPayload<{
@@ -95,9 +98,15 @@ export function presentRide(
       ride.status === 'completed' && ride.fare != null
         ? {
             walletPaid: ride.walletPaid ?? 0,
-            cash: ride.fare - (ride.walletPaid ?? 0),
+            promo: ride.promoDiscount ?? 0,
+            cash:
+              ride.fare - (ride.walletPaid ?? 0) - (ride.promoDiscount ?? 0),
           }
         : null,
+    // A promo code on the ride; its discount is known once completed.
+    promo: ride.promoRedemption
+      ? { code: ride.promoRedemption.promo.code }
+      : null,
     pickup: {
       lat: ride.pickupLat,
       lng: ride.pickupLng,
