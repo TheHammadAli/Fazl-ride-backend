@@ -13,6 +13,7 @@ interface FakeUser {
   name: string | null;
   email: string | null;
   googleId: string | null;
+  passwordHash?: string | null;
   status: 'active' | 'blocked' | 'deleted';
 }
 
@@ -166,23 +167,40 @@ describe('AuthService.completeGoogleSignIn', () => {
     });
   });
 
-  it("links an existing number, keeping the account's name and email", async () => {
+  it("links an existing number, keeping its name; Google's email replaces its own", async () => {
     const { service, rows } = setup([
       { phone: '+923001234567', name: 'Driver Sara', email: 'old@mail.com' },
     ]);
     await service.completeGoogleSignIn('sara', 'Typed', '+923001234567', CODE);
+    expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
       name: 'Driver Sara',
-      email: 'old@mail.com',
+      email: 'sara@gmail.com',
       googleId: 'g-sara',
     });
   });
 
-  it("leaves the email off when another account already has it", async () => {
+  it('takes the email from an account that only typed it in', async () => {
     const { service, rows } = setup([{ email: 'sara@gmail.com' }]);
     await service.completeGoogleSignIn('sara', 'Sara', '+923001234567', CODE);
-    expect(rows[1]).toMatchObject({ email: null, googleId: 'g-sara' });
+    expect(rows[1]).toMatchObject({
+      email: 'sara@gmail.com',
+      googleId: 'g-sara',
+    });
+    expect(rows[0].email).toBeNull();
+  });
+
+  it("leaves an admin's email, which signs the admin in, where it is", async () => {
+    const { service, rows } = setup([
+      { email: 'sara@gmail.com', passwordHash: 'hash' },
+      { phone: '+923001234567', email: 'old@mail.com' },
+    ]);
+    await service.completeGoogleSignIn('sara', 'Sara', '+923001234567', CODE);
     expect(rows[0].email).toBe('sara@gmail.com');
+    expect(rows[1]).toMatchObject({
+      email: 'old@mail.com',
+      googleId: 'g-sara',
+    });
   });
 
   it('needs the right code, and uses nothing up without it', async () => {
@@ -200,11 +218,48 @@ describe('AuthService.completeGoogleSignIn', () => {
     ).rejects.toThrow(ConflictException);
   });
 
-  it('refuses a number linked to another Google account', async () => {
-    const { service } = setup([{ phone: '+923001234567', googleId: 'g-ali' }]);
+  it('opens the same account for its number with a new Google account, which replaces the old', async () => {
+    const { service, rows } = setup([
+      {
+        phone: '+923001234567',
+        name: 'Ali',
+        email: 'ali@gmail.com',
+        googleId: 'g-ali',
+      },
+    ]);
+    const result = await service.completeGoogleSignIn(
+      'sara',
+      'Sara',
+      '+923001234567',
+      CODE,
+    );
+    expect(result).toMatchObject({ accessToken: 'access-u1' });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      name: 'Ali',
+      email: 'sara@gmail.com',
+      googleId: 'g-sara',
+    });
+    // The new Google account signs in from now on; the old one asks again.
+    await expect(service.googleSignIn('sara')).resolves.toMatchObject({
+      accessToken: 'access-u1',
+    });
+    await expect(service.googleSignIn('ali')).resolves.toMatchObject({
+      needsPhone: true,
+    });
+  });
+
+  it('changes nothing for a number linked elsewhere without the right code', async () => {
+    const { service, rows } = setup([
+      { phone: '+923001234567', email: 'ali@gmail.com', googleId: 'g-ali' },
+    ]);
     await expect(
-      service.completeGoogleSignIn('sara', 'Sara', '+923001234567', CODE),
-    ).rejects.toThrow(ConflictException);
+      service.completeGoogleSignIn('sara', 'Sara', '+923001234567', '000000'),
+    ).rejects.toThrow(UnauthorizedException);
+    expect(rows[0]).toMatchObject({
+      email: 'ali@gmail.com',
+      googleId: 'g-ali',
+    });
   });
 
   it('refuses a blocked number', async () => {

@@ -100,9 +100,13 @@ export class AuthService {
   /**
    * Finishes a first "Continue with Google": the code texted to [phone]
    * proves the number, and the Google account is linked to the user with it
-   * (registered now if it's new). A new account takes the name the person
-   * confirmed; one that has a name keeps it (a driver's goes through review).
-   * Google's email is added if the account has none and nobody else uses it.
+   * (registered now if it's new), in place of any Google account linked to it
+   * before. A new account takes the name the person confirmed; one that has
+   * a name keeps it (a driver's goes through review).
+   *
+   * Google's email, which Google has verified, replaces the account's. Another
+   * account that only had it typed in loses it; an admin's, which signs the
+   * admin in, stays where it is, and the account keeps its own.
    */
   async completeGoogleSignIn(
     idToken: string,
@@ -122,32 +126,37 @@ export class AuthService {
       );
     }
     const byPhone = await this.prisma.user.findUnique({ where: { phone } });
-    if (byPhone?.googleId && byPhone.googleId !== google.sub) {
-      throw new ConflictException(
-        'This mobile number is already linked to another Google account',
-      );
-    }
     if (byPhone?.status === 'blocked') {
       throw new ForbiddenException('Account is blocked');
     }
 
     await this.consumeOtp(phone, code);
     const user = byPhone ?? (await this.findOrCreateUser(phone));
-    const emailTaken =
-      !user.email &&
-      (await this.prisma.user.count({ where: { email: google.email } })) > 0;
+    const holder = await this.prisma.user.findUnique({
+      where: { email: google.email },
+    });
+    const adminHasEmail =
+      !!holder && holder.id !== user.id && !!holder.passwordHash;
     await this.prisma.$transaction([
       // A deleted account's link is let go, so the Google account can start again.
       this.prisma.user.updateMany({
         where: { googleId: google.sub, id: { not: user.id } },
         data: { googleId: null },
       }),
+      ...(adminHasEmail
+        ? []
+        : [
+            this.prisma.user.updateMany({
+              where: { email: google.email, id: { not: user.id } },
+              data: { email: null },
+            }),
+          ]),
       this.prisma.user.update({
         where: { id: user.id },
         data: {
           googleId: google.sub,
           ...(user.name?.trim() ? {} : { name: name.trim() }),
-          ...(user.email || emailTaken ? {} : { email: google.email }),
+          ...(adminHasEmail ? {} : { email: google.email }),
         },
       }),
     ]);
