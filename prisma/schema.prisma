@@ -498,6 +498,9 @@ model Ride {
   nextExpandAt       DateTime
   expiresAt          DateTime
 
+  // Promo code discount on the final fare (FAZL pays it to the driver).
+  promoDiscount Int?
+
   requestedAt DateTime  @default(now())
   acceptedAt  DateTime?
   arrivedAt   DateTime?
@@ -518,6 +521,7 @@ model Ride {
   reminders       BookingReminder[]
   safetyAlerts    SafetyAlert[]
   supportTickets  SupportTicket[]
+  promoRedemption PromoRedemption?
   schedule        RideSchedule?      @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
 
   @@unique([scheduleId, scheduledAt])
@@ -797,6 +801,8 @@ enum WalletTransactionType {
   refund
   // Paid once when a driver reaches an achievement level.
   level_bonus
+  // FAZL pays the driver the promo discount the passenger got.
+  promo_credit
 }
 
 enum WalletRequestKind {
@@ -1251,4 +1257,63 @@ model ServiceCity {
 
   @@unique([name, country])
   @@map("service_cities")
+}
+
+enum PromoDiscountType {
+  percent
+  fixed
+}
+
+// A promo code admins create (admin panel: Promotions). The passenger enters
+// it when requesting; the discount comes off the final fare and FAZL pays it
+// to the driver's wallet.
+model PromoCode {
+  id            String            @id @default(uuid()) @db.Uuid
+  // Stored upper case; matched ignoring case.
+  code          String            @unique
+  description   String?
+  discountType  PromoDiscountType
+  // Percent (1-100) or whole PKR.
+  value         Int
+  // Cap for a percent discount, PKR.
+  maxDiscount   Int?
+  minFare       Int               @default(0)
+  // 'ride' or 'freight'; null = both.
+  service       String?
+  firstRideOnly Boolean           @default(false)
+  // Total uses across everyone; null = no limit.
+  usageLimit    Int?
+  perUserLimit  Int               @default(1)
+  startsAt      DateTime?
+  expiresAt     DateTime?
+  active        Boolean           @default(true)
+  createdById   String?           @db.Uuid
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  redemptions   PromoRedemption[]
+
+  @@map("promo_codes")
+}
+
+enum PromoRedemptionStatus {
+  // On a ride not finished yet (counts while the ride is open).
+  reserved
+  used
+}
+
+model PromoRedemption {
+  id        String                @id @default(uuid()) @db.Uuid
+  promoId   String                @db.Uuid
+  userId    String                @db.Uuid
+  rideId    String                @unique @db.Uuid
+  status    PromoRedemptionStatus @default(reserved)
+  discount  Int                   @default(0)
+  createdAt DateTime              @default(now())
+  updatedAt DateTime              @updatedAt
+  promo     PromoCode             @relation(fields: [promoId], references: [id])
+  ride      Ride                  @relation(fields: [rideId], references: [id], onDelete: Cascade)
+
+  @@index([promoId, status])
+  @@index([userId, promoId])
+  @@map("promo_redemptions")
 }
