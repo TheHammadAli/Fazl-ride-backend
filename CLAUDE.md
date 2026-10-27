@@ -340,3 +340,11 @@ Module `src/service-areas/`, migration `20261027110000_service_cities`. A city =
 - `app_settings.onlyServiceCities` (default **false**): when on, `RidesService.request` (rides, freight, bookings) refuses a pickup outside every active city with 400 `{code: 'SERVICE_AREA', cities}`. The rule cannot be turned on with no active city, and the last active city cannot be switched off or deleted while it is on. Active cities are cached 30 s (cleared on every admin change). Rules in `service-area-rules.ts` (+ spec).
 - Admin panel: Countries & Cities page (was mock) adds a city by Google place search.
 
+## Promo codes (2026-10-27, Careem style)
+Module `src/promos/` (rules in `promo-rules.ts` + spec), migration `20261027120000_promo_codes`.
+- `promo_codes`: `code` (unique, upper case), `discountType` percent|fixed, `value`, `maxDiscount` (percent cap), `minFare`, `service` ride|freight|null, `firstRideOnly`, `usageLimit` (total, null = none), `perUserLimit` (1), `startsAt`/`expiresAt`, `active`. `promo_redemptions` (one per ride: `reserved` while the ride is open, `used` with the `discount` at completion).
+- A use counts when `used`, or `reserved` on a ride still open (scheduled..started), so a cancelled/expired ride frees the code with no clean-up job.
+- App: `POST promos/check {code, service?, fare?}` (10/min) -> discount preview or 400 `{code: PROMO_*}`; `POST rides {promoCode}` holds it in the ride-creation transaction (promo row locked `FOR UPDATE`; a refused code leaves no ride). Ride view: `promo {code}`; once completed `payment {walletPaid, promo, cash}`.
+- Completion: discount = on the **final** fare (0 if below `minFare`); the passenger owes fare - discount (wallet first, rest cash), **FAZL pays the discount to the driver's wallet** (`promo_credit`, key `ride:<id>:promo`), commission still on the whole fare. `rides.promoDiscount`.
+- Admin: `GET admin/promos?search` (with `usedCount`, `openCount`, `totalDiscount`, `state` live|scheduled|expired|used_up|paused), `POST`, `PATCH :id` (code and discount terms locked once used; limits/dates/on-off always editable), `DELETE :id` (only if never used). Audited.
+
