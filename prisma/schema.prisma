@@ -1198,3 +1198,21 @@ model SupportMessage {
   @@index([ticketId, createdAt])
   @@map("support_messages")
 }
+
+// A push message an admin sent to a group (Notifications page): who, to
+// whom, and how many phones it went to.
+model Broadcast {
+  id        String   @id @default(uuid()) @db.Uuid
+  title     String
+  body      String
+  // all, passengers, drivers, online_drivers
+  audience  String
+  adminId   String   @db.Uuid
+  // People in the audience, and how many of their phones got it.
+  people    Int
+  devices   Int
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@map("broadcasts")
+}
