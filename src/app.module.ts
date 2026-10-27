@@ -32,6 +32,7 @@ import { PlacesModule } from './places/places.module.js';
 import { SafetyModule } from './safety/safety.module.js';
 import { SupportModule } from './support/support.module.js';
 import { BroadcastsModule } from './broadcasts/broadcasts.module.js';
+import { AdminTeamModule } from './admin-team/admin-team.module.js';
 import { AppSettingsModule } from './app-settings/app-settings.module.js';
 import { PromosModule } from './promos/promos.module.js';
 import { ServiceAreasModule } from './service-areas/service-areas.module.js';
@@ -69,6 +70,7 @@ import { LevelsModule } from './levels/levels.module.js';
     AppSettingsModule,
     ServiceAreasModule,
     PromosModule,
+    AdminTeamModule,
     PlacesModule,
     AdminStatsModule,
     LevelsModule,
