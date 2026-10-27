@@ -95,23 +95,26 @@ enum DocumentType {
 }
 
 model User {
-  id               String     @id @default(uuid()) @db.Uuid
-  phone            String     @unique
-  name             String?
-  email            String?    @unique
+  id                 String     @id @default(uuid()) @db.Uuid
+  phone              String     @unique
+  name               String?
+  email              String?    @unique
   // Only set for web-admin accounts (email + password login); everyone else uses an OTP.
-  passwordHash     String?
-  avatarKey        String?
+  passwordHash       String?
+  // A web admin given a temporary password must choose their own first.
+  mustChangePassword Boolean    @default(false)
+  lastAdminLoginAt   DateTime?
+  avatarKey          String?
   // Someone to call or alert in an emergency (SOS). Drivers keep theirs on
   // the driver profile too, where it is required to drive.
-  emergencyContact String?
-  status           UserStatus @default(active)
-  blockedReason    String?
+  emergencyContact   String?
+  status             UserStatus @default(active)
+  blockedReason      String?
   // Sum and number of star ratings received, so the average is cheap to show on cards.
-  ratingSum        Int        @default(0)
-  ratingCount      Int        @default(0)
-  createdAt        DateTime   @default(now())
-  updatedAt        DateTime   @updatedAt
+  ratingSum          Int        @default(0)
+  ratingCount        Int        @default(0)
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
 
   roles             UserRole[]
   refreshTokens     RefreshToken[]
