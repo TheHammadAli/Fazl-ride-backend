@@ -1216,3 +1216,19 @@ model Broadcast {
   @@index([createdAt])
   @@map("broadcasts")
 }
+
+// Settings the apps read (GET config) and admins edit: how to reach FAZL
+// support and the legal pages. One row, id 1.
+model AppSettings {
+  id              Int      @id @default(1)
+  supportPhone    String?
+  supportWhatsapp String?
+  supportEmail    String?
+  // Shown with the contact details, e.g. "Every day, 9 AM - 11 PM".
+  supportHours    String?
+  privacyUrl      String?
+  termsUrl        String?
+  updatedAt       DateTime @updatedAt
+
+  @@map("app_settings")
+}
