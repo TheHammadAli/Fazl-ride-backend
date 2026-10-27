@@ -32,6 +32,7 @@ import { PlacesModule } from './places/places.module.js';
 import { SafetyModule } from './safety/safety.module.js';
 import { SupportModule } from './support/support.module.js';
 import { BroadcastsModule } from './broadcasts/broadcasts.module.js';
+import { AppSettingsModule } from './app-settings/app-settings.module.js';
 import { SavedPlacesModule } from './saved-places/saved-places.module.js';
 import { LevelsModule } from './levels/levels.module.js';
 
@@ -63,6 +64,7 @@ import { LevelsModule } from './levels/levels.module.js';
     SafetyModule,
     SupportModule,
     BroadcastsModule,
+    AppSettingsModule,
     PlacesModule,
     AdminStatsModule,
     LevelsModule,
