@@ -23,6 +23,7 @@ import {
 import { ratingView } from './rating.js';
 import { RatingsService } from './ratings.service.js';
 import { RoutingProvider } from '../routing/routing.provider.js';
+import { ServiceAreasService } from '../service-areas/service-areas.service.js';
 import { StorageService } from '../storage/storage.service.js';
 import { WalletService } from '../wallet/wallet.service.js';
 import { ReservationsService } from './reservations.service.js';
@@ -59,6 +60,7 @@ export class RidesService {
     private readonly reservations: ReservationsService,
     private readonly bookingSettings: BookingSettingsService,
     private readonly tiers: VehicleTiersService,
+    private readonly serviceAreas: ServiceAreasService,
   ) {}
 
   // The lowest a negotiable price may go for a ride whose fixed/estimated
@@ -88,6 +90,7 @@ export class RidesService {
     opts: { scheduleId?: string } = {},
   ) {
     await this.cancellations.assertNotBlocked(passengerId, 'passenger');
+    await this.serviceAreas.assertServed(dto.pickup);
     const category = await this.vehicleCategories.findActive(dto.category);
     if (!category) {
       throw new BadRequestException(
