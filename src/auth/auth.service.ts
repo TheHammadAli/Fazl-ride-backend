@@ -128,7 +128,16 @@ export class AuthService {
     if (user.status === 'blocked') {
       throw new ForbiddenException('Account is blocked');
     }
-    return this.issueTokens(user.id);
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { lastAdminLoginAt: new Date() },
+    });
+    // A temporary password from a super admin: the panel asks for a new one
+    // before anything else.
+    return {
+      ...(await this.issueTokens(user.id)),
+      mustChangePassword: user.mustChangePassword,
+    };
   }
 
   async refresh(refreshToken: string) {
@@ -211,7 +220,9 @@ export class AuthService {
   private devBypassCode(): string | null {
     const enabled =
       String(this.config.get('DEV_OTP_BYPASS') ?? '').toLowerCase() === 'true';
-    return enabled ? (this.config.get<string>('DEV_OTP_CODE') ?? '123456') : null;
+    return enabled
+      ? (this.config.get<string>('DEV_OTP_CODE') ?? '123456')
+      : null;
   }
 
   private hashOtp(phone: string, code: string) {
