@@ -348,3 +348,9 @@ Module `src/promos/` (rules in `promo-rules.ts` + spec), migration `202610271200
 - Completion: discount = on the **final** fare (0 if below `minFare`); the passenger owes fare - discount (wallet first, rest cash), **FAZL pays the discount to the driver's wallet** (`promo_credit`, key `ride:<id>:promo`), commission still on the whole fare. `rides.promoDiscount`.
 - Admin: `GET admin/promos?search` (with `usedCount`, `openCount`, `totalDiscount`, `state` live|scheduled|expired|used_up|paused), `POST`, `PATCH :id` (code and discount terms locked once used; limits/dates/on-off always editable), `DELETE :id` (only if never used). Audited.
 
+## Admin team / multi-admin (2026-10-27)
+Module `src/admin-team/`, migration `20261027130000_admin_team` (`users.mustChangePassword`, `users.lastAdminLoginAt`). Web admins sign in with email + password (`POST auth/admin/login`, scrypt); the first super admin still comes from `ADMIN_BOOTSTRAP_EMAIL/PASSWORD`.
+- Super admin only: `GET admin/team`, `POST admin/team {name, email, role: admin|super_admin}` (creates an email-only account, `phone = email:<email>`, or gives an existing account panel access) -> a 14-char **temporary password returned once**, `PATCH admin/team/:id {role}`, `POST admin/team/:id/reset-password` (new temporary password, refresh tokens revoked), `DELETE admin/team/:id` (admin roles removed, sessions revoked; a panel-only account is also blocked, an app user keeps their app account). Never yourself; always at least one active super admin. Audited.
+- Any admin: `POST admin/me/password {currentPassword, newPassword (10+)}`. `auth/admin/login` and `users/me` return `mustChangePassword`; the panel forces the change after a temporary password.
+- Roles: `admin` = every admin page; `super_admin` = also the team and API keys. Access tokens stay valid until they expire (15 min) but roles/status are re-read on every request, so removal is immediate.
+
