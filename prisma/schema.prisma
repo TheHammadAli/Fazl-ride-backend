@@ -1220,15 +1220,35 @@ model Broadcast {
 // Settings the apps read (GET config) and admins edit: how to reach FAZL
 // support and the legal pages. One row, id 1.
 model AppSettings {
-  id              Int      @id @default(1)
-  supportPhone    String?
-  supportWhatsapp String?
-  supportEmail    String?
+  id                Int      @id @default(1)
+  supportPhone      String?
+  supportWhatsapp   String?
+  supportEmail      String?
   // Shown with the contact details, e.g. "Every day, 9 AM - 11 PM".
-  supportHours    String?
-  privacyUrl      String?
-  termsUrl        String?
-  updatedAt       DateTime @updatedAt
+  supportHours      String?
+  privacyUrl        String?
+  termsUrl          String?
+  // Rides may only start inside an active service city (Countries & Cities).
+  onlyServiceCities Boolean  @default(false)
+  updatedAt         DateTime @updatedAt
 
   @@map("app_settings")
+}
+
+// A city FAZL operates in (admin panel: Countries & Cities): a centre and a
+// radius. Used to say where rides may start (when that rule is on), for the
+// per-city numbers, and to send a broadcast to one city.
+model ServiceCity {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  country   String   @default("Pakistan")
+  lat       Float
+  lng       Float
+  radiusKm  Int      @default(25)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([name, country])
+  @@map("service_cities")
 }
