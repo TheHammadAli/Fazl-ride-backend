@@ -173,7 +173,7 @@ export class AdminTeamService {
   }
 
   // Any admin: their own password (also the forced change after a
-  // temporary one). Other sessions are signed out.
+  // temporary one).
   async changeOwnPassword(
     userId: string,
     currentPassword: string,
