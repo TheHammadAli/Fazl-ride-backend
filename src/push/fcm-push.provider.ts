@@ -48,7 +48,17 @@ export class FcmPushProvider extends PushProvider {
 
   async send(tokens: string[], message: PushMessage) {
     if (!this.app || !tokens.length) return { deadTokens: [] };
-    const result = await getMessaging(this.app).sendEachForMulticast({
+    // Firebase takes at most 500 tokens per call (a broadcast has more).
+    const deadTokens: string[] = [];
+    for (let i = 0; i < tokens.length; i += 500) {
+      const part = await this.sendBatch(tokens.slice(i, i + 500), message);
+      deadTokens.push(...part);
+    }
+    return { deadTokens };
+  }
+
+  private async sendBatch(tokens: string[], message: PushMessage) {
+    const result = await getMessaging(this.app!).sendEachForMulticast({
       tokens,
       notification: { title: message.title, body: message.body },
       data: message.data,
@@ -75,6 +85,6 @@ export class FcmPushProvider extends PushProvider {
       if (code && DEAD.has(code)) deadTokens.push(tokens[i]);
       else if (r.error) this.logger.warn(`Push failed: ${code}`);
     });
-    return { deadTokens };
+    return deadTokens;
   }
 }
