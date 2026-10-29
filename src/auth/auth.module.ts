@@ -6,6 +6,10 @@ import { AdminBootstrapService } from './admin-bootstrap.service.js';
 import { AuthController } from './auth.controller.js';
 import { AuthService } from './auth.service.js';
 import {
+  FazlAdminApiVerifier,
+  FazlAdminVerifier,
+} from './fazl-admin/fazl-admin.verifier.js';
+import {
   GoogleCertsVerifier,
   GoogleIdTokenVerifier,
 } from './google/google-id-token.verifier.js';
@@ -32,6 +36,7 @@ import { SmsProvider } from './sms/sms.provider.js';
     JwtStrategy,
     { provide: SmsProvider, useClass: ConsoleSmsProvider },
     { provide: GoogleIdTokenVerifier, useClass: GoogleCertsVerifier },
+    { provide: FazlAdminVerifier, useClass: FazlAdminApiVerifier },
   ],
 })
 export class AuthModule {}

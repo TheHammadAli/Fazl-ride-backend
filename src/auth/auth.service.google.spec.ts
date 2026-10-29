@@ -96,6 +96,7 @@ function setup(users: Partial<FakeUser>[] = []) {
     config as never,
     {} as never,
     google as never,
+    {} as never,
   );
   return { service, rows };
 }

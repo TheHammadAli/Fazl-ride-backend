@@ -5,6 +5,7 @@ import { AuthService } from './auth.service.js';
 import {
   AdminLoginDto,
   CompleteGoogleSignInDto,
+  FazlAdminLoginDto,
   GoogleSignInDto,
   RefreshTokenDto,
   RequestOtpDto,
@@ -63,6 +64,16 @@ export class AuthController {
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
   adminLogin(@Body() dto: AdminLoginDto) {
     return this.auth.adminLogin(dto.email, dto.password);
+  }
+
+  // Fazl Admin's panel (FazlAdmin) opens Fazl Ride with the admin's Fazl
+  // Admin login instead: 401 when Fazl Admin doesn't accept it, 403 when the
+  // account has no "Fazl Ride" permission. Returns an access token only.
+  @Post('fazl-admin')
+  @HttpCode(200)
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  fazlAdminLogin(@Body() dto: FazlAdminLoginDto) {
+    return this.auth.fazlAdminLogin(dto.token);
   }
 
   @Post('refresh')

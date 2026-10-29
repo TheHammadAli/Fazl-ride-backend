@@ -19,7 +19,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
   // Roles are read from the database on every request, so an admin approval
   // or a block takes effect immediately instead of when the token expires.
-  async validate(payload: { sub: string }): Promise<AuthUser> {
+  async validate(payload: {
+    sub: string;
+    readOnly?: boolean;
+  }): Promise<AuthUser> {
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       include: { roles: true },
@@ -31,6 +34,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       id: user.id,
       phone: user.phone,
       roles: user.roles.map((r) => r.role),
+      ...(payload.readOnly ? { readOnly: true } : {}),
     };
   }
 }

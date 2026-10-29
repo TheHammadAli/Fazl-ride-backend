@@ -19,6 +19,8 @@ import {
 import { Role } from '../generated/prisma/enums.js';
 import { verifyPassword } from '../common/password.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { fazlAdminPhone, rideAccessFor } from './fazl-admin/fazl-admin.js';
+import { FazlAdminVerifier } from './fazl-admin/fazl-admin.verifier.js';
 import { GoogleIdTokenVerifier } from './google/google-id-token.verifier.js';
 import { SmsProvider } from './sms/sms.provider.js';
 
@@ -35,6 +37,7 @@ export class AuthService {
     private readonly config: ConfigService,
     private readonly sms: SmsProvider,
     private readonly google: GoogleIdTokenVerifier,
+    private readonly fazlAdmin: FazlAdminVerifier,
   ) {}
 
   async requestOtp(phone: string) {
@@ -221,6 +224,59 @@ export class AuthService {
       throw new ForbiddenException('Account is blocked');
     }
     return this.issueTokens(user.id);
+  }
+
+  /**
+   * Fazl Admin's panel opens its Fazl Ride part with the admin's own Fazl
+   * Admin login: Fazl Admin says who it is and what they may do, and they
+   * get an access token for an account kept for them here (made on their
+   * first visit, its name and admin role kept in step on every one).
+   *
+   * No refresh token: when the access token runs out the panel asks again, so
+   * an account disabled or a permission taken away in Fazl Admin ends here
+   * within JWT_ACCESS_TTL.
+   */
+  async fazlAdminLogin(fazlAdminToken: string) {
+    const staff = await this.fazlAdmin.verify(fazlAdminToken);
+    const access = rideAccessFor(staff);
+    const phone = fazlAdminPhone(staff.id);
+    if (!access) {
+      // Access taken away: the account here loses its admin roles as well.
+      await this.prisma.userRole.deleteMany({
+        where: { user: { phone }, role: { in: [Role.admin, Role.super_admin] } },
+      });
+      throw new ForbiddenException(
+        'Your Fazl Admin account has no access to Fazl Ride',
+      );
+    }
+
+    const name = staff.name ?? 'Fazl Admin';
+    const user = await this.prisma.user.upsert({
+      where: { phone },
+      update: { name },
+      create: { phone, name },
+    });
+    if (user.status !== 'active') {
+      throw new ForbiddenException('Account is blocked');
+    }
+    const otherRole =
+      access.role === Role.super_admin ? Role.admin : Role.super_admin;
+    await this.prisma.$transaction([
+      this.prisma.userRole.deleteMany({
+        where: { userId: user.id, role: otherRole },
+      }),
+      this.prisma.userRole.upsert({
+        where: { userId_role: { userId: user.id, role: access.role } },
+        update: {},
+        create: { userId: user.id, role: access.role },
+      }),
+    ]);
+
+    const accessToken = await this.jwt.signAsync({
+      sub: user.id,
+      ...(access.readOnly ? { readOnly: true } : {}),
+    });
+    return { accessToken, readOnly: access.readOnly };
   }
 
   async refresh(refreshToken: string) {

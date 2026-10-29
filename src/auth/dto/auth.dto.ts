@@ -53,6 +53,14 @@ export class CompleteGoogleSignInDto extends GoogleSignInDto {
   code: string;
 }
 
+/** Fazl Admin's panel: the admin's own Fazl Admin access token. */
+export class FazlAdminLoginDto {
+  @IsString()
+  @MinLength(20)
+  @MaxLength(4096)
+  token: string;
+}
+
 export class AdminLoginDto {
   @IsEmail()
   @MaxLength(254)
