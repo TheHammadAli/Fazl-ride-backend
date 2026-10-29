@@ -35,8 +35,12 @@ export class AdminStatsService {
   async dashboard(period: Period = 'today') {
     const now = new Date();
     const { from, to } = periodBounds(period, now, this.tz);
-    // The same length of time just before, for "vs last ..." trends.
-    const prevFrom = new Date(from.getTime() - (to.getTime() - from.getTime()));
+    // The same length of time just before, for "vs last ..." trends; nothing
+    // comes before "all".
+    const prevFrom =
+      period === 'all'
+        ? from
+        : new Date(from.getTime() - (to.getTime() - from.getTime()));
 
     const [
       current,

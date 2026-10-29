@@ -56,7 +56,12 @@ export class AdminService {
     const q = search?.trim();
     const matches: Prisma.UserWhereInput = {
       status: { not: 'deleted' },
-      ...(role && { roles: { some: { role } } }),
+      AND: [
+        // Admins are Fazl Admin's staff (and this panel's own login), looked
+        // after there: the list is the app's passengers and drivers.
+        { roles: { none: { role: { in: [Role.admin, Role.super_admin] } } } },
+        ...(role ? [{ roles: { some: { role } } }] : []),
+      ],
       ...(q && {
         OR: [
           { phone: { contains: q } },

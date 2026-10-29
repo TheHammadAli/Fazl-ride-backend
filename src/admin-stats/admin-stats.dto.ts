@@ -1,9 +1,10 @@
 import { IsDateString, IsIn, IsOptional } from 'class-validator';
+import type { Period } from '../common/time.js';
 
 export class DashboardQueryDto {
   @IsOptional()
-  @IsIn(['today', 'week', 'month'])
-  period?: 'today' | 'week' | 'month';
+  @IsIn(['today', 'week', 'last_week', 'month', 'year', 'all'])
+  period?: Period;
 }
 
 export class ReportsQueryDto {
