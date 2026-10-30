@@ -335,6 +335,26 @@ Module `src/support/`, migration `20261022120000_support_tickets`. Careem/Uber "
 - App screens: Report a problem (`/support/new?ride=&as=`), My reports (`/support`), conversation (`/support/:id`); entry from ride details, both end-of-trip screens and Profile > Help. Push `data.type = support` opens the ticket.
 - Admin panel: Complaints page (was mock) is the real queue with a conversation panel; the sidebar badge counts new reports.
 
+## Countries & Cities / service areas (2026-10-27)
+Module `src/service-areas/`, migration `20261027110000_service_cities`. A city = centre + `radiusKm` (`service_cities`, unique name+country, default country Pakistan).
+- Admin: `GET admin/service-cities` (each city with `stats`: online drivers seen in 2 min, rides under way, rides requested / completed today, all by pickup inside the circle; plus `onlyServiceCities`), `POST`, `PATCH :id`, `DELETE :id`, `PUT admin/service-cities/rule {onlyServiceCities}`. Audited.
+- `app_settings.onlyServiceCities` (default **false**): when on, `RidesService.request` (rides, freight, bookings) refuses a pickup outside every active city with 400 `{code: 'SERVICE_AREA', cities}`. The rule cannot be turned on with no active city, and the last active city cannot be switched off or deleted while it is on. Active cities are cached 30 s (cleared on every admin change). Rules in `service-area-rules.ts` (+ spec).
+- Admin panel: Countries & Cities page (was mock) adds a city by Google place search.
+
+## Promo codes (2026-10-27, Careem style)
+Module `src/promos/` (rules in `promo-rules.ts` + spec), migration `20261027120000_promo_codes`.
+- `promo_codes`: `code` (unique, upper case), `discountType` percent|fixed, `value`, `maxDiscount` (percent cap), `minFare`, `service` ride|freight|null, `firstRideOnly`, `usageLimit` (total, null = none), `perUserLimit` (1), `startsAt`/`expiresAt`, `active`. `promo_redemptions` (one per ride: `reserved` while the ride is open, `used` with the `discount` at completion).
+- A use counts when `used`, or `reserved` on a ride still open (scheduled..started), so a cancelled/expired ride frees the code with no clean-up job.
+- App: `POST promos/check {code, service?, fare?}` (10/min) -> discount preview or 400 `{code: PROMO_*}`; `POST rides {promoCode}` holds it in the ride-creation transaction (promo row locked `FOR UPDATE`; a refused code leaves no ride). Ride view: `promo {code}`; once completed `payment {walletPaid, promo, cash}`.
+- Completion: discount = on the **final** fare (0 if below `minFare`); the passenger owes fare - discount (wallet first, rest cash), **FAZL pays the discount to the driver's wallet** (`promo_credit`, key `ride:<id>:promo`), commission still on the whole fare. `rides.promoDiscount`.
+- Admin: `GET admin/promos?search` (with `usedCount`, `openCount`, `totalDiscount`, `state` live|scheduled|expired|used_up|paused), `POST`, `PATCH :id` (code and discount terms locked once used; limits/dates/on-off always editable), `DELETE :id` (only if never used). Audited.
+
+## Admin team / multi-admin (2026-10-27)
+Module `src/admin-team/`, migration `20261027130000_admin_team` (`users.mustChangePassword`, `users.lastAdminLoginAt`). Web admins sign in with email + password (`POST auth/admin/login`, scrypt); the first super admin still comes from `ADMIN_BOOTSTRAP_EMAIL/PASSWORD`.
+- Super admin only: `GET admin/team`, `POST admin/team {name, email, role: admin|super_admin}` (creates an email-only account, `phone = email:<email>`, or gives an existing account panel access) -> a 14-char **temporary password returned once**, `PATCH admin/team/:id {role}`, `POST admin/team/:id/reset-password` (new temporary password, refresh tokens revoked), `DELETE admin/team/:id` (admin roles removed, sessions revoked; a panel-only account is also blocked, an app user keeps their app account). Never yourself; always at least one active super admin. Audited.
+- Any admin: `POST admin/me/password {currentPassword, newPassword (10+)}`. `auth/admin/login` and `users/me` return `mustChangePassword`; the panel forces the change after a temporary password.
+- Roles: `admin` = every admin page; `super_admin` = also the team and API keys. Access tokens stay valid until they expire (15 min) but roles/status are re-read on every request, so removal is immediate.
+
 ## Fazl Admin opens Fazl Ride (2026-10-28, user: Fazl Ride as a part of Fazl Admin)
 The backends stay separate (same-named tables, different logins); FAZL's admin panel (`FazlAdmin`, backend `Fazlapp-Backend1`) calls this one directly for its "Fazl Ride" part.
 - `POST auth/fazl-admin {token}`: the admin's Fazl Admin access token. `FazlAdminVerifier` (adapter, `src/auth/fazl-admin/`) asks `FAZL_ADMIN_API_URL` + `/admins/me` who it is (no shared secret; a disabled account or a removed permission counts at once). 401 = Fazl Admin doesn't accept it, 403 = no access, 503 = unset/unreachable.
@@ -343,3 +363,4 @@ The backends stay separate (same-named tables, different logins); FAZL's admin p
 - Returns `{ accessToken, readOnly }`, **no refresh token**: the panel trades again when it runs out, so access ends within `JWT_ACCESS_TTL`. A view-only token carries `readOnly: true`; `RolesGuard` then refuses anything but GET/HEAD/OPTIONS on role-guarded routes.
 - Set on Render: `FAZL_ADMIN_API_URL` (e.g. https://staging-api.fazlapp.com) and add Fazl Admin's sites to `ADMIN_PANEL_ORIGINS` (https://staging.fazl.io, https://fazl.io). One Ride backend can trust one Fazl Admin backend at a time.
 - FazlAdmin side (2026-10-29, user: "same frontend, only our colours"): the whole `fazl-parking-frontned` ride panel is copied into `FazlAdmin/components/Admin/Ride/` (pages, ui, lib, map, shell), routes under `/admin/ride/...`. Its `lib/api.ts` keeps the panel's axios-like `api` but trades the Fazl Admin login (`NEXT_PUBLIC_RIDE_API_URL` without `/api/v1`); the panel's shadcn colour names are set to Fazl Admin's colours in FazlAdmin's globals.css. A change to a page in `fazl-parking-frontned` must be made in FazlAdmin too.
+

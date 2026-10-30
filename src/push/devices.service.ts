@@ -29,14 +29,15 @@ export class DevicesService {
   }
 
   // Sends to every phone of these people. Never throws: a notification that
-  // cannot go out must not break what caused it.
-  async notify(userIds: string[], message: PushMessage) {
+  // cannot go out must not break what caused it. Returns how many phones it
+  // was sent to.
+  async notify(userIds: string[], message: PushMessage): Promise<number> {
     try {
       const devices = await this.prisma.deviceToken.findMany({
         where: { userId: { in: userIds } },
         select: { token: true },
       });
-      if (!devices.length) return;
+      if (!devices.length) return 0;
       const { deadTokens } = await this.push.send(
         devices.map((d) => d.token),
         message,
@@ -46,8 +47,10 @@ export class DevicesService {
           where: { token: { in: deadTokens } },
         });
       }
+      return devices.length - deadTokens.length;
     } catch (error) {
       this.logger.warn(`Could not send push: ${String(error)}`);
+      return 0;
     }
   }
 }

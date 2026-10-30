@@ -58,6 +58,7 @@ export const TRANSACTION_LABELS: Record<WalletTransactionType, string> = {
   adjustment: 'Adjustment',
   refund: 'Refund',
   level_bonus: 'Level bonus',
+  promo_credit: 'Promo paid by FAZL',
 };
 
 // One posting to the ledger. `key` must be unique for the business event it
@@ -192,8 +193,13 @@ export class WalletService {
       driverId: string;
       fare: number;
       paymentMethod: PaymentMethod;
+      // Promo code discount: the passenger owes that much less and FAZL pays
+      // it to the driver. Commission is still on the whole fare.
+      promoDiscount?: number;
     },
   ): Promise<{ walletPaid: number; commission: number }> {
+    const promo = ride.promoDiscount ?? 0;
+    const owed = ride.fare - promo;
     const settings = await this.settings(tx);
     // This ride is already marked completed in the same transaction.
     const completedBefore = await tx.ride.count({
@@ -219,7 +225,7 @@ export class WalletService {
       const locked = await tx.$queryRaw<{ balance: number }[]>`
         SELECT "balance" FROM wallets WHERE "userId" = ${ride.passengerId}::uuid
         FOR UPDATE`;
-      walletPaid = splitPayment(ride.fare, locked[0]?.balance ?? 0).walletPaid;
+      walletPaid = splitPayment(owed, locked[0]?.balance ?? 0).walletPaid;
       if (walletPaid > 0) {
         await this.post(tx, {
           userId: ride.passengerId,
@@ -237,6 +243,16 @@ export class WalletService {
           allowNegative: true,
         });
       }
+    }
+    if (promo > 0) {
+      await this.post(tx, {
+        userId: ride.driverId,
+        type: 'promo_credit',
+        amount: promo,
+        key: `ride:${ride.id}:promo`,
+        rideId: ride.id,
+        allowNegative: true,
+      });
     }
     if (commission > 0) {
       await this.post(tx, {

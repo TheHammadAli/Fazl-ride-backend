@@ -95,26 +95,29 @@ enum DocumentType {
 }
 
 model User {
-  id               String     @id @default(uuid()) @db.Uuid
-  phone            String     @unique
-  name             String?
-  email            String?    @unique
+  id                 String     @id @default(uuid()) @db.Uuid
+  phone              String     @unique
+  name               String?
+  email              String?    @unique
   // The Google account ("sub") linked by "Continue with Google": signs in
   // with Google from then on. Set once the phone number is verified too.
-  googleId         String?    @unique
+  googleId           String?    @unique
   // Only set for web-admin accounts (email + password login); everyone else uses an OTP.
-  passwordHash     String?
-  avatarKey        String?
+  passwordHash       String?
+  // A web admin given a temporary password must choose their own first.
+  mustChangePassword Boolean    @default(false)
+  lastAdminLoginAt   DateTime?
+  avatarKey          String?
   // Someone to call or alert in an emergency (SOS). Drivers keep theirs on
   // the driver profile too, where it is required to drive.
-  emergencyContact String?
-  status           UserStatus @default(active)
-  blockedReason    String?
+  emergencyContact   String?
+  status             UserStatus @default(active)
+  blockedReason      String?
   // Sum and number of star ratings received, so the average is cheap to show on cards.
-  ratingSum        Int        @default(0)
-  ratingCount      Int        @default(0)
-  createdAt        DateTime   @default(now())
-  updatedAt        DateTime   @updatedAt
+  ratingSum          Int        @default(0)
+  ratingCount        Int        @default(0)
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
 
   roles             UserRole[]
   refreshTokens     RefreshToken[]
@@ -501,6 +504,9 @@ model Ride {
   nextExpandAt       DateTime
   expiresAt          DateTime
 
+  // Promo code discount on the final fare (FAZL pays it to the driver).
+  promoDiscount Int?
+
   requestedAt DateTime  @default(now())
   acceptedAt  DateTime?
   arrivedAt   DateTime?
@@ -521,6 +527,7 @@ model Ride {
   reminders       BookingReminder[]
   safetyAlerts    SafetyAlert[]
   supportTickets  SupportTicket[]
+  promoRedemption PromoRedemption?
   schedule        RideSchedule?      @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
 
   @@unique([scheduleId, scheduledAt])
@@ -800,6 +807,8 @@ enum WalletTransactionType {
   refund
   // Paid once when a driver reaches an achievement level.
   level_bonus
+  // FAZL pays the driver the promo discount the passenger got.
+  promo_credit
 }
 
 enum WalletRequestKind {
@@ -1200,4 +1209,117 @@ model SupportMessage {
 
   @@index([ticketId, createdAt])
   @@map("support_messages")
+}
+
+// A push message an admin sent to a group (Notifications page): who, to
+// whom, and how many phones it went to.
+model Broadcast {
+  id        String   @id @default(uuid()) @db.Uuid
+  title     String
+  body      String
+  // all, passengers, drivers, online_drivers
+  audience  String
+  adminId   String   @db.Uuid
+  // People in the audience, and how many of their phones got it.
+  people    Int
+  devices   Int
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@map("broadcasts")
+}
+
+// Settings the apps read (GET config) and admins edit: how to reach FAZL
+// support and the legal pages. One row, id 1.
+model AppSettings {
+  id                Int      @id @default(1)
+  supportPhone      String?
+  supportWhatsapp   String?
+  supportEmail      String?
+  // Shown with the contact details, e.g. "Every day, 9 AM - 11 PM".
+  supportHours      String?
+  privacyUrl        String?
+  termsUrl          String?
+  // Rides may only start inside an active service city (Countries & Cities).
+  onlyServiceCities Boolean  @default(false)
+  updatedAt         DateTime @updatedAt
+
+  @@map("app_settings")
+}
+
+// A city FAZL operates in (admin panel: Countries & Cities): a centre and a
+// radius. Used to say where rides may start (when that rule is on), for the
+// per-city numbers, and to send a broadcast to one city.
+model ServiceCity {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  country   String   @default("Pakistan")
+  lat       Float
+  lng       Float
+  radiusKm  Int      @default(25)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([name, country])
+  @@map("service_cities")
+}
+
+enum PromoDiscountType {
+  percent
+  fixed
+}
+
+// A promo code admins create (admin panel: Promotions). The passenger enters
+// it when requesting; the discount comes off the final fare and FAZL pays it
+// to the driver's wallet.
+model PromoCode {
+  id            String            @id @default(uuid()) @db.Uuid
+  // Stored upper case; matched ignoring case.
+  code          String            @unique
+  description   String?
+  discountType  PromoDiscountType
+  // Percent (1-100) or whole PKR.
+  value         Int
+  // Cap for a percent discount, PKR.
+  maxDiscount   Int?
+  minFare       Int               @default(0)
+  // 'ride' or 'freight'; null = both.
+  service       String?
+  firstRideOnly Boolean           @default(false)
+  // Total uses across everyone; null = no limit.
+  usageLimit    Int?
+  perUserLimit  Int               @default(1)
+  startsAt      DateTime?
+  expiresAt     DateTime?
+  active        Boolean           @default(true)
+  createdById   String?           @db.Uuid
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  redemptions   PromoRedemption[]
+
+  @@map("promo_codes")
+}
+
+enum PromoRedemptionStatus {
+  // On a ride not finished yet (counts while the ride is open).
+  reserved
+  used
+}
+
+model PromoRedemption {
+  id        String                @id @default(uuid()) @db.Uuid
+  promoId   String                @db.Uuid
+  userId    String                @db.Uuid
+  rideId    String                @unique @db.Uuid
+  status    PromoRedemptionStatus @default(reserved)
+  discount  Int                   @default(0)
+  createdAt DateTime              @default(now())
+  updatedAt DateTime              @updatedAt
+  promo     PromoCode             @relation(fields: [promoId], references: [id])
+  ride      Ride                  @relation(fields: [rideId], references: [id], onDelete: Cascade)
+
+  @@index([promoId, status])
+  @@index([userId, promoId])
+  @@map("promo_redemptions")
 }

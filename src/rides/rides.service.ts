@@ -23,6 +23,8 @@ import {
 import { ratingView } from './rating.js';
 import { RatingsService } from './ratings.service.js';
 import { RoutingProvider } from '../routing/routing.provider.js';
+import { PromosService } from '../promos/promos.service.js';
+import { ServiceAreasService } from '../service-areas/service-areas.service.js';
 import { StorageService } from '../storage/storage.service.js';
 import { WalletService } from '../wallet/wallet.service.js';
 import { ReservationsService } from './reservations.service.js';
@@ -59,6 +61,8 @@ export class RidesService {
     private readonly reservations: ReservationsService,
     private readonly bookingSettings: BookingSettingsService,
     private readonly tiers: VehicleTiersService,
+    private readonly serviceAreas: ServiceAreasService,
+    private readonly promos: PromosService,
   ) {}
 
   // The lowest a negotiable price may go for a ride whose fixed/estimated
@@ -88,6 +92,7 @@ export class RidesService {
     opts: { scheduleId?: string } = {},
   ) {
     await this.cancellations.assertNotBlocked(passengerId, 'passenger');
+    await this.serviceAreas.assertServed(dto.pickup);
     const category = await this.vehicleCategories.findActive(dto.category);
     if (!category) {
       throw new BadRequestException(
@@ -116,71 +121,91 @@ export class RidesService {
     const schedule = dto.scheduledAt
       ? await this.planSchedule(passengerId, new Date(dto.scheduledAt))
       : null;
+    // The price the promo code's minimum and estimate are measured against.
+    const askingFare = negotiable
+      ? (dto.offeredFare ?? quote.fare)
+      : quote.fare;
     let ride: RideWithRelations;
     try {
-      ride = await this.prisma.ride.create({
-        data: {
-          passengerId,
-          category: dto.category,
-          tripType,
-          pickupLat: dto.pickup.lat,
-          pickupLng: dto.pickup.lng,
-          pickupAddress: dto.pickup.address,
-          dropoffLat: dto.dropoff.lat,
-          dropoffLng: dto.dropoff.lng,
-          dropoffAddress: dto.dropoff.address,
-          estimatedDistanceMeters: quote.distanceMeters,
-          estimatedDurationSeconds: quote.durationSeconds,
-          estimatedFare: quote.fare,
-          negotiable,
-          offeredFare: negotiable ? (dto.offeredFare ?? quote.fare) : null,
-          autoAccept: negotiable ? (dto.autoAccept ?? false) : false,
-          paymentMethod,
-          rates: quote.rates,
-          searchRadiusMeters: freight
-            ? this.settings.freightRadiusMeters
-            : negotiable
-              ? this.settings.negotiableRadiusMeters
-              : this.settings.radiiMeters[0],
-          // Asked again (drivers who came online since) when offers lapse.
-          nextExpandAt: new Date(
-            now.getTime() +
-              this.matching.offerTtlSeconds({
-                service: freight ? 'freight' : 'ride',
-              }) *
-                1000,
-          ),
-          expiresAt:
-            schedule?.expiresAt ??
-            new Date(
+      ride = await this.prisma.$transaction(async (tx) => {
+        const created = await tx.ride.create({
+          data: {
+            passengerId,
+            category: dto.category,
+            tripType,
+            pickupLat: dto.pickup.lat,
+            pickupLng: dto.pickup.lng,
+            pickupAddress: dto.pickup.address,
+            dropoffLat: dto.dropoff.lat,
+            dropoffLng: dto.dropoff.lng,
+            dropoffAddress: dto.dropoff.address,
+            estimatedDistanceMeters: quote.distanceMeters,
+            estimatedDurationSeconds: quote.durationSeconds,
+            estimatedFare: quote.fare,
+            negotiable,
+            offeredFare: negotiable ? (dto.offeredFare ?? quote.fare) : null,
+            autoAccept: negotiable ? (dto.autoAccept ?? false) : false,
+            paymentMethod,
+            rates: quote.rates,
+            searchRadiusMeters: freight
+              ? this.settings.freightRadiusMeters
+              : negotiable
+                ? this.settings.negotiableRadiusMeters
+                : this.settings.radiiMeters[0],
+            // Asked again (drivers who came online since) when offers lapse.
+            nextExpandAt: new Date(
               now.getTime() +
-                (freight
-                  ? this.settings.freightRequestTtlSeconds
-                  : this.settings.requestTtlSeconds) *
+                this.matching.offerTtlSeconds({
+                  service: freight ? 'freight' : 'ride',
+                }) *
                   1000,
             ),
-          ...(schedule && {
-            status: 'scheduled' as const,
-            scheduledAt: schedule.scheduledAt,
-            scheduleId: opts.scheduleId,
-            // Never searched by the sweeper: drivers offer ahead of time.
-            nextExpandAt: schedule.expiresAt,
-          }),
-          ...(freight && {
-            service: 'freight',
-            loadDescription: dto.loadDescription,
-            loadWeightKg: dto.loadWeightKg,
-            helpersNeeded: dto.helpersNeeded,
-            loadPhotoKey: dto.loadPhotoKey,
-            pickupFloor: dto.pickupFloor,
-            pickupHasLift: dto.pickupHasLift,
-            dropoffFloor: dto.dropoffFloor,
-            dropoffHasLift: dto.dropoffHasLift,
-            needsLoading: dto.needsLoading,
-            needsUnloading: dto.needsUnloading,
-          }),
-        },
-        include: rideInclude,
+            expiresAt:
+              schedule?.expiresAt ??
+              new Date(
+                now.getTime() +
+                  (freight
+                    ? this.settings.freightRequestTtlSeconds
+                    : this.settings.requestTtlSeconds) *
+                    1000,
+              ),
+            ...(schedule && {
+              status: 'scheduled' as const,
+              scheduledAt: schedule.scheduledAt,
+              scheduleId: opts.scheduleId,
+              // Never searched by the sweeper: drivers offer ahead of time.
+              nextExpandAt: schedule.expiresAt,
+            }),
+            ...(freight && {
+              service: 'freight',
+              loadDescription: dto.loadDescription,
+              loadWeightKg: dto.loadWeightKg,
+              helpersNeeded: dto.helpersNeeded,
+              loadPhotoKey: dto.loadPhotoKey,
+              pickupFloor: dto.pickupFloor,
+              pickupHasLift: dto.pickupHasLift,
+              dropoffFloor: dto.dropoffFloor,
+              dropoffHasLift: dto.dropoffHasLift,
+              needsLoading: dto.needsLoading,
+              needsUnloading: dto.needsUnloading,
+            }),
+          },
+          include: rideInclude,
+        });
+        if (!dto.promoCode) return created;
+        // Held for this ride in the same transaction: a refused code
+        // leaves no ride behind.
+        await this.promos.reserve(tx, {
+          userId: passengerId,
+          rideId: created.id,
+          code: dto.promoCode,
+          service: freight ? 'freight' : 'ride',
+          fare: askingFare,
+        });
+        return tx.ride.findUniqueOrThrow({
+          where: { id: created.id },
+          include: rideInclude,
+        });
       });
     } catch (error: any) {
       if (error?.code === 'P2002') {
@@ -977,6 +1002,8 @@ export class RidesService {
         rideId,
         amount: fare,
       });
+      // Promo code discount on the final fare (0 without one).
+      const promoDiscount = await this.promos.redeem(tx, rideId, fare);
       // Wallet part of the fare and the platform's commission.
       const settled = await this.wallet.settleRide(tx, {
         id: rideId,
@@ -984,12 +1011,14 @@ export class RidesService {
         driverId,
         fare,
         paymentMethod: ride.paymentMethod,
+        promoDiscount,
       });
       await tx.ride.update({
         where: { id: rideId },
         data: {
           walletPaid: settled.walletPaid,
           commission: settled.commission,
+          promoDiscount: promoDiscount || null,
         },
       });
       await this.earnings.recordCommission(tx, {

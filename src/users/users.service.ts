@@ -55,6 +55,7 @@ export class UsersService {
       phone: user.phone,
       name: user.name,
       email: user.email,
+      mustChangePassword: user.mustChangePassword,
       // A driver's own one is on the driver profile, required to drive.
       emergencyContact:
         user.emergencyContact ?? user.driverProfile?.emergencyContact ?? null,
