@@ -1,4 +1,5 @@
 import {
+  ConflictException,
   ForbiddenException,
   HttpException,
   HttpStatus,
@@ -18,6 +19,9 @@ import {
 import { Role } from '../generated/prisma/enums.js';
 import { verifyPassword } from '../common/password.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { fazlAdminPhone, rideAccessFor } from './fazl-admin/fazl-admin.js';
+import { FazlAdminVerifier } from './fazl-admin/fazl-admin.verifier.js';
+import { GoogleIdTokenVerifier } from './google/google-id-token.verifier.js';
 import { SmsProvider } from './sms/sms.provider.js';
 
 const OTP_RESEND_SECONDS = 60;
@@ -32,6 +36,8 @@ export class AuthService {
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
     private readonly sms: SmsProvider,
+    private readonly google: GoogleIdTokenVerifier,
+    private readonly fazlAdmin: FazlAdminVerifier,
   ) {}
 
   async requestOtp(phone: string) {
@@ -63,15 +69,110 @@ export class AuthService {
   }
 
   async verifyOtp(phone: string, code: string) {
+    await this.consumeOtp(phone, code);
+    const user = await this.findOrCreateUser(phone);
+    if (user.status === 'blocked') {
+      throw new ForbiddenException('Account is blocked');
+    }
+    return this.issueTokens(user.id);
+  }
+
+  /**
+   * "Continue with Google". A Google account linked to a user signs in at
+   * once. Otherwise the app asks the person to confirm their name and give a
+   * mobile number, which is texted a code, and finishes with
+   * [completeGoogleSignIn]: every account has a verified phone.
+   *
+   * Never matched by email: the one on a profile is typed in by the user,
+   * unverified, so it can't vouch for who owns the Google account.
+   */
+  async googleSignIn(idToken: string) {
+    const google = await this.google.verify(idToken);
+    const user = await this.prisma.user.findUnique({
+      where: { googleId: google.sub },
+    });
+    if (!user || user.status === 'deleted') {
+      return { needsPhone: true, name: google.name, email: google.email };
+    }
+    if (user.status === 'blocked') {
+      throw new ForbiddenException('Account is blocked');
+    }
+    return this.issueTokens(user.id);
+  }
+
+  /**
+   * Finishes a first "Continue with Google": the code texted to [phone]
+   * proves the number, and the Google account is linked to the user with it
+   * (registered now if it's new), in place of any Google account linked to it
+   * before. A new account takes the name the person confirmed; one that has
+   * a name keeps it (a driver's goes through review).
+   *
+   * Google's email, which Google has verified, replaces the account's. Another
+   * account that only had it typed in loses it; an admin's, which signs the
+   * admin in, stays where it is, and the account keeps its own.
+   */
+  async completeGoogleSignIn(
+    idToken: string,
+    name: string,
+    phone: string,
+    code: string,
+  ) {
+    const google = await this.google.verify(idToken);
+
+    // Everything that would refuse it, before the code is used up.
+    const linked = await this.prisma.user.findUnique({
+      where: { googleId: google.sub },
+    });
+    if (linked && linked.status !== 'deleted' && linked.phone !== phone) {
+      throw new ConflictException(
+        'This Google account is already linked to another mobile number',
+      );
+    }
+    const byPhone = await this.prisma.user.findUnique({ where: { phone } });
+    if (byPhone?.status === 'blocked') {
+      throw new ForbiddenException('Account is blocked');
+    }
+
+    await this.consumeOtp(phone, code);
+    const user = byPhone ?? (await this.findOrCreateUser(phone));
+    const holder = await this.prisma.user.findUnique({
+      where: { email: google.email },
+    });
+    const adminHasEmail =
+      !!holder && holder.id !== user.id && !!holder.passwordHash;
+    await this.prisma.$transaction([
+      // A deleted account's link is let go, so the Google account can start again.
+      this.prisma.user.updateMany({
+        where: { googleId: google.sub, id: { not: user.id } },
+        data: { googleId: null },
+      }),
+      ...(adminHasEmail
+        ? []
+        : [
+            this.prisma.user.updateMany({
+              where: { email: google.email, id: { not: user.id } },
+              data: { email: null },
+            }),
+          ]),
+      this.prisma.user.update({
+        where: { id: user.id },
+        data: {
+          googleId: google.sub,
+          ...(user.name?.trim() ? {} : { name: name.trim() }),
+          ...(adminHasEmail ? {} : { email: google.email }),
+        },
+      }),
+    ]);
+    return this.issueTokens(user.id);
+  }
+
+  /** Checks [code] for [phone] and uses it up; 401 if it's wrong or expired. */
+  private async consumeOtp(phone: string, code: string) {
     // Testing only: any phone logs in with one fixed code, no SMS needed.
     // Never true in production - see DEV_OTP_BYPASS in .env.example.
     if (this.devBypassCode() === code) {
-      this.logger.warn(`DEV_OTP_BYPASS used to log in ${phone}`);
-      const bypassUser = await this.findOrCreateUser(phone);
-      if (bypassUser.status === 'blocked') {
-        throw new ForbiddenException('Account is blocked');
-      }
-      return this.issueTokens(bypassUser.id);
+      this.logger.warn(`DEV_OTP_BYPASS used for ${phone}`);
+      return;
     }
 
     const otp = await this.prisma.otpCode.findFirst({
@@ -103,12 +204,6 @@ export class AuthService {
     if (consumed.count === 0) {
       throw new UnauthorizedException('Invalid or expired code');
     }
-
-    const user = await this.findOrCreateUser(phone);
-    if (user.status === 'blocked') {
-      throw new ForbiddenException('Account is blocked');
-    }
-    return this.issueTokens(user.id);
   }
 
   async adminLogin(email: string, password: string) {
@@ -138,6 +233,59 @@ export class AuthService {
       ...(await this.issueTokens(user.id)),
       mustChangePassword: user.mustChangePassword,
     };
+  }
+
+  /**
+   * Fazl Admin's panel opens its Fazl Ride part with the admin's own Fazl
+   * Admin login: Fazl Admin says who it is and what they may do, and they
+   * get an access token for an account kept for them here (made on their
+   * first visit, its name and admin role kept in step on every one).
+   *
+   * No refresh token: when the access token runs out the panel asks again, so
+   * an account disabled or a permission taken away in Fazl Admin ends here
+   * within JWT_ACCESS_TTL.
+   */
+  async fazlAdminLogin(fazlAdminToken: string) {
+    const staff = await this.fazlAdmin.verify(fazlAdminToken);
+    const access = rideAccessFor(staff);
+    const phone = fazlAdminPhone(staff.id);
+    if (!access) {
+      // Access taken away: the account here loses its admin roles as well.
+      await this.prisma.userRole.deleteMany({
+        where: { user: { phone }, role: { in: [Role.admin, Role.super_admin] } },
+      });
+      throw new ForbiddenException(
+        'Your Fazl Admin account has no access to Fazl Ride',
+      );
+    }
+
+    const name = staff.name ?? 'Fazl Admin';
+    const user = await this.prisma.user.upsert({
+      where: { phone },
+      update: { name },
+      create: { phone, name },
+    });
+    if (user.status !== 'active') {
+      throw new ForbiddenException('Account is blocked');
+    }
+    const otherRole =
+      access.role === Role.super_admin ? Role.admin : Role.super_admin;
+    await this.prisma.$transaction([
+      this.prisma.userRole.deleteMany({
+        where: { userId: user.id, role: otherRole },
+      }),
+      this.prisma.userRole.upsert({
+        where: { userId_role: { userId: user.id, role: access.role } },
+        update: {},
+        create: { userId: user.id, role: access.role },
+      }),
+    ]);
+
+    const accessToken = await this.jwt.signAsync({
+      sub: user.id,
+      ...(access.readOnly ? { readOnly: true } : {}),
+    });
+    return { accessToken, readOnly: access.readOnly };
   }
 
   async refresh(refreshToken: string) {

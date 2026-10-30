@@ -67,5 +67,38 @@ describe('periodBounds (UTC+5)', () => {
 
   it('every period ends now', () => {
     expect(periodBounds('week', monday).to).toBe(monday);
+    expect(periodBounds('year', monday).to).toBe(monday);
+  });
+
+  it('last week runs from the Monday before to where this week starts', () => {
+    const { from, to } = periodBounds('last_week', monday);
+    expect(from.toISOString()).toBe('2026-09-13T19:00:00.000Z');
+    expect(to.toISOString()).toBe('2026-09-20T19:00:00.000Z');
+  });
+
+  it('midweek, last week is still the whole week before', () => {
+    const thursday = new Date('2026-09-24T09:00:00+05:00');
+    const { from, to } = periodBounds('last_week', thursday);
+    expect(from.toISOString()).toBe('2026-09-13T19:00:00.000Z');
+    expect(to.toISOString()).toBe('2026-09-20T19:00:00.000Z');
+  });
+
+  it('the year starts on 1 January at local midnight', () => {
+    expect(periodBounds('year', monday).from.toISOString()).toBe(
+      '2025-12-31T19:00:00.000Z',
+    );
+  });
+
+  it('all is everything up to now', () => {
+    const { from, to } = periodBounds('all', monday);
+    expect(from.getTime()).toBe(0);
+    expect(to).toBe(monday);
+  });
+
+  it('just after local midnight on 1 January is already the new year', () => {
+    const newYear = new Date('2027-01-01T00:30:00+05:00');
+    expect(periodBounds('year', newYear).from.toISOString()).toBe(
+      '2026-12-31T19:00:00.000Z',
+    );
   });
 });

@@ -18,6 +18,7 @@ Source spec: `FAZL Drivedocx.pdf` (34 sections, in `~/Documents/fazl`, next to t
 - `fazl-parking-backend`: this repo, NestJS API.
 - `fazl-parking-flutter`: one Flutter app (Passenger + Driver mode + Parking discovery + Parking Owner mode).
 - `fazl-parking-frontned` (the folder name has that typo; remote `awais002288/fazl-parking-frontned`, empty so far) is where **our own web Admin Panel will be built, later, not now** (user decision 2026-09-21, replacing the earlier plan). FAZL's existing admin panel is **not** used. Do not start it until the user says so. See "Admin panel (planned, later)" below.
+  - **Changed 2026-10-28 (user decision):** Fazl Ride now also lives inside FAZL's own admin panel (`FazlAdmin`, part "Fazl Ride" at `/admin/ride`); its pages move over from `fazl-parking-frontned` one by one. This backend stays separate. See "Fazl Admin opens Fazl Ride" at the end.
 
 ## Decisions made
 | Area | Decision |
@@ -353,4 +354,13 @@ Module `src/admin-team/`, migration `20261027130000_admin_team` (`users.mustChan
 - Super admin only: `GET admin/team`, `POST admin/team {name, email, role: admin|super_admin}` (creates an email-only account, `phone = email:<email>`, or gives an existing account panel access) -> a 14-char **temporary password returned once**, `PATCH admin/team/:id {role}`, `POST admin/team/:id/reset-password` (new temporary password, refresh tokens revoked), `DELETE admin/team/:id` (admin roles removed, sessions revoked; a panel-only account is also blocked, an app user keeps their app account). Never yourself; always at least one active super admin. Audited.
 - Any admin: `POST admin/me/password {currentPassword, newPassword (10+)}`. `auth/admin/login` and `users/me` return `mustChangePassword`; the panel forces the change after a temporary password.
 - Roles: `admin` = every admin page; `super_admin` = also the team and API keys. Access tokens stay valid until they expire (15 min) but roles/status are re-read on every request, so removal is immediate.
+
+## Fazl Admin opens Fazl Ride (2026-10-28, user: Fazl Ride as a part of Fazl Admin)
+The backends stay separate (same-named tables, different logins); FAZL's admin panel (`FazlAdmin`, backend `Fazlapp-Backend1`) calls this one directly for its "Fazl Ride" part.
+- `POST auth/fazl-admin {token}`: the admin's Fazl Admin access token. `FazlAdminVerifier` (adapter, `src/auth/fazl-admin/`) asks `FAZL_ADMIN_API_URL` + `/admins/me` who it is (no shared secret; a disabled account or a removed permission counts at once). 401 = Fazl Admin doesn't accept it, 403 = no access, 503 = unset/unreachable.
+- Access (`rideAccessFor` + spec): Fazl Admin `super_admin` -> `super_admin` here; `admin`/`subadmin` only with the Fazl Admin permission page `ride` -> `admin`, view only unless it allows edit or delete; members (moderators) and disabled accounts never.
+- The account here is `phone = fazl-admin:<staffId>` (like the bootstrap admin's `email:`), name kept in step, admin role moved with Fazl Admin (and taken away when access is refused).
+- Returns `{ accessToken, readOnly }`, **no refresh token**: the panel trades again when it runs out, so access ends within `JWT_ACCESS_TTL`. A view-only token carries `readOnly: true`; `RolesGuard` then refuses anything but GET/HEAD/OPTIONS on role-guarded routes.
+- Set on Render: `FAZL_ADMIN_API_URL` (e.g. https://staging-api.fazlapp.com) and add Fazl Admin's sites to `ADMIN_PANEL_ORIGINS` (https://staging.fazl.io, https://fazl.io). One Ride backend can trust one Fazl Admin backend at a time.
+- FazlAdmin side (2026-10-29, user: "same frontend, only our colours"): the whole `fazl-parking-frontned` ride panel is copied into `FazlAdmin/components/Admin/Ride/` (pages, ui, lib, map, shell), routes under `/admin/ride/...`. Its `lib/api.ts` keeps the panel's axios-like `api` but trades the Fazl Admin login (`NEXT_PUBLIC_RIDE_API_URL` without `/api/v1`); the panel's shadcn colour names are set to Fazl Admin's colours in FazlAdmin's globals.css. A change to a page in `fazl-parking-frontned` must be made in FazlAdmin too.
 

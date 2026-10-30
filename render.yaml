@@ -33,6 +33,9 @@ services:
         sync: false
       - key: ADMIN_BOOTSTRAP_PASSWORD
         sync: false
+      # Fazl Admin's panel opens Fazl Ride with its own login; see .env.example.
+      - key: FAZL_ADMIN_API_URL
+        sync: false
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
