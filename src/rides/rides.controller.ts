@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   Param,
+  ParseIntPipe,
   ParseUUIDPipe,
   Post,
   UseGuards,
@@ -45,6 +46,7 @@ export class RidesController {
       dto.dropoff,
       dto.tripType ?? TripType.within_city,
       dto.service,
+      dto.stops ?? [],
     );
   }
 
@@ -196,6 +198,32 @@ export class RidesController {
   @Roles(Role.driver)
   start(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.rides.start(user.id, id);
+  }
+
+  // Driver, on the trip: at a stop on the way (within the arrival radius).
+  @Post(':id/stops/:position/arrived')
+  @HttpCode(200)
+  @UseGuards(RolesGuard)
+  @Roles(Role.driver)
+  arrivedAtStop(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('position', ParseIntPipe) position: number,
+  ) {
+    return this.rides.arriveAtStop(user.id, id, position);
+  }
+
+  // Driver: leaving the stop; its waiting is charged now.
+  @Post(':id/stops/:position/continue')
+  @HttpCode(200)
+  @UseGuards(RolesGuard)
+  @Roles(Role.driver)
+  continueFromStop(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('position', ParseIntPipe) position: number,
+  ) {
+    return this.rides.leaveStop(user.id, id, position);
   }
 
   @Post(':id/complete')

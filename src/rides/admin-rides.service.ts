@@ -145,6 +145,8 @@ export class AdminRidesService {
         ratings: { orderBy: { createdAt: 'asc' } },
         cancellationLog: { orderBy: { createdAt: 'asc' } },
         earningEntries: true,
+        // Stops on the way, with what waiting at each came to.
+        stops: { orderBy: { position: 'asc' } },
       },
     });
     if (!ride) throw new NotFoundException('Ride not found');

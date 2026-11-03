@@ -32,6 +32,11 @@ import { BookingSettingsService } from './booking-settings.service.js';
 import { VehicleTiersService } from '../vehicle-categories/vehicle-tiers.service.js';
 import { RideSettings } from './rides.settings.js';
 import { billedDistanceMeters, FareRatesSnapshot } from './trip-distance.js';
+import {
+  stopWaitingCharge,
+  waitedSeconds,
+  waitingRatesOf,
+} from './stop-waiting.js';
 import { VehicleCategoriesService } from '../vehicle-categories/vehicle-categories.service.js';
 
 const IN_PROGRESS: RideStatus[] = [
@@ -101,6 +106,10 @@ export class RidesService {
     }
     const freight = category.service === 'freight';
     if (freight) await this.assertFreightRequest(passengerId, dto);
+    const stops = dto.stops ?? [];
+    if (freight && stops.length) {
+      throw new BadRequestException('Stops on the way are for rides only');
+    }
     const paymentMethod = dto.paymentMethod ?? 'cash';
     if (paymentMethod === 'wallet')
       await this.wallet.assertCanPayByWallet(passengerId);
@@ -110,6 +119,7 @@ export class RidesService {
       dto.dropoff,
       dto.category,
       tripType,
+      stops,
     );
     // Freight is always priced by offers: the customer's price, drivers'
     // counter-offers (inDrive Cargo style).
@@ -139,6 +149,16 @@ export class RidesService {
             dropoffLat: dto.dropoff.lat,
             dropoffLng: dto.dropoff.lng,
             dropoffAddress: dto.dropoff.address,
+            ...(stops.length && {
+              stops: {
+                create: stops.map((stop, i) => ({
+                  position: i + 1,
+                  lat: stop.lat,
+                  lng: stop.lng,
+                  address: stop.address,
+                })),
+              },
+            }),
             estimatedDistanceMeters: quote.distanceMeters,
             estimatedDurationSeconds: quote.durationSeconds,
             estimatedFare: quote.fare,
@@ -945,7 +965,105 @@ export class RidesService {
     return this.get(driverId, rideId);
   }
 
-  // Driver: drop-off reached. The fare is computed from what was actually driven.
+  // Driver, on the trip: "I am at stop N". Must really be there, and not
+  // still at another stop. Stops before it never arrived at were skipped.
+  async arriveAtStop(driverId: string, rideId: string, position: number) {
+    await this.ownRide(driverId, rideId, ['started'], 'arrive at a stop');
+    const stops = await this.prisma.rideStop.findMany({
+      where: { rideId },
+      orderBy: { position: 'asc' },
+    });
+    const stop = stops.find((s) => s.position === position);
+    if (!stop) throw new NotFoundException('Stop not found');
+    if (stop.arrivedAt) {
+      throw new ConflictException('You already arrived at this stop');
+    }
+    const atAnother = stops.find((s) => s.arrivedAt && !s.departedAt);
+    if (atAnother) {
+      throw new ConflictException(
+        `Press Continue at stop ${atAnother.position} first`,
+      );
+    }
+    if (stops.some((s) => s.position > position && s.arrivedAt)) {
+      throw new ConflictException(
+        'You already went on to a later stop; this one was skipped',
+      );
+    }
+    const position_ = await this.locations.getLocation(driverId);
+    if (!position_) {
+      throw new ConflictException(
+        'Your location is unknown. Keep the app open and try again',
+      );
+    }
+    const away = Math.round(
+      haversineMeters(position_, { lat: stop.lat, lng: stop.lng }),
+    );
+    if (away > this.settings.arrivalRadiusMeters) {
+      throw new ConflictException(
+        `You are ${away} m from stop ${position}; get within ${this.settings.arrivalRadiusMeters} m first`,
+      );
+    }
+    const done = await this.prisma.rideStop.updateMany({
+      where: { id: stop.id, arrivedAt: null },
+      data: { arrivedAt: new Date() },
+    });
+    if (done.count === 0) {
+      throw new ConflictException('You already arrived at this stop');
+    }
+    this.events.emit('ride.stop_arrived', { rideId, driverId, position });
+    return this.get(driverId, rideId);
+  }
+
+  // Driver: leaving the stop. Its waiting is settled now: the free minutes,
+  // then every minute begun after them, at the rate the passenger was quoted.
+  async leaveStop(driverId: string, rideId: string, position: number) {
+    const ride = await this.ownRide(
+      driverId,
+      rideId,
+      ['started'],
+      'leave a stop',
+    );
+    const stop = await this.prisma.rideStop.findUnique({
+      where: { rideId_position: { rideId, position } },
+    });
+    if (!stop) throw new NotFoundException('Stop not found');
+    if (!stop.arrivedAt) {
+      throw new ConflictException('Press Arrived at this stop first');
+    }
+    if (stop.departedAt) {
+      throw new ConflictException('You already left this stop');
+    }
+    const now = new Date();
+    const done = await this.prisma.rideStop.updateMany({
+      where: { id: stop.id, departedAt: null },
+      data: {
+        departedAt: now,
+        ...this.settleStop(stop.arrivedAt, now, ride.rates),
+      },
+    });
+    if (done.count === 0) {
+      throw new ConflictException('You already left this stop');
+    }
+    this.events.emit('ride.stop_departed', { rideId, driverId, position });
+    return this.get(driverId, rideId);
+  }
+
+  // How long the driver stood at a stop, and what that comes to.
+  private settleStop(arrivedAt: Date, departedAt: Date, rates: unknown) {
+    const seconds = waitedSeconds(arrivedAt, departedAt);
+    return {
+      waitedSeconds: seconds,
+      waitingCharge: stopWaitingCharge(
+        seconds,
+        waitingRatesOf(rates),
+        this.settings.maxStopWaitMinutes,
+      ),
+    };
+  }
+
+  // Driver: drop-off reached. The fare is computed from what was actually
+  // driven, plus waiting at the stops on the way (charged on its own: the time
+  // stood at them is left out of the metered minutes).
   async complete(driverId: string, rideId: string) {
     const ride = await this.ownRide(
       driverId,
@@ -967,21 +1085,40 @@ export class RidesService {
       1,
       Math.round((now.getTime() - (ride.startedAt ?? now).getTime()) / 1000),
     );
+    // Stops: one the driver is still at is left now. Their waiting is added
+    // to the fare, and the time stood at them is not metered again.
+    const stops = await this.prisma.rideStop.findMany({ where: { rideId } });
+    const stillAt = stops.filter((s) => s.arrivedAt && !s.departedAt);
+    const settled = stops.map((s) =>
+      s.arrivedAt && !s.departedAt
+        ? this.settleStop(s.arrivedAt, now, ride.rates)
+        : {
+            waitedSeconds: s.waitedSeconds ?? 0,
+            waitingCharge: s.waitingCharge ?? 0,
+          },
+    );
+    const waitingCharge = settled.reduce((sum, s) => sum + s.waitingCharge, 0);
+    const stoodSeconds = settled.reduce((sum, s) => sum + s.waitedSeconds, 0);
     // A negotiable ride's price was agreed when the passenger chose the offer
     // (ride.fare is already set); the metered calculation below is only for
     // the original fixed-price mode.
     let fare: number;
     // A booking for later keeps the price agreed with its driver too.
     if ((ride.negotiable || ride.scheduledAt) && ride.fare != null) {
-      fare = ride.fare;
+      fare = ride.fare + waitingCharge;
     } else {
       const rates =
         (ride.rates as FareRatesSnapshot | null) ??
         (await this.currentRates(ride.category, ride.tripType));
-      fare = Math.min(
-        calculateFare(rates, distanceMeters, durationSeconds),
-        Math.round(ride.estimatedFare * this.settings.maxFareFactor),
-      );
+      fare =
+        Math.min(
+          calculateFare(
+            rates,
+            distanceMeters,
+            Math.max(1, durationSeconds - stoodSeconds),
+          ),
+          Math.round(ride.estimatedFare * this.settings.maxFareFactor),
+        ) + waitingCharge;
     }
 
     const { walletPaid } = await this.prisma.$transaction(async (tx) => {
@@ -993,10 +1130,20 @@ export class RidesService {
           distanceMeters,
           durationSeconds,
           fare,
+          ...(stops.length ? { waitingCharge } : {}),
         },
       });
       if (done.count === 0)
         throw new ConflictException('This ride is no longer in progress');
+      for (const stop of stillAt) {
+        await tx.rideStop.updateMany({
+          where: { id: stop.id, departedAt: null },
+          data: {
+            departedAt: now,
+            ...this.settleStop(stop.arrivedAt!, now, ride.rates),
+          },
+        });
+      }
       await this.earnings.recordRideFare(tx, {
         driverId,
         rideId,

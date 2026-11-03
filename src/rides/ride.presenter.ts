@@ -1,5 +1,6 @@
 import type { Prisma } from '../generated/prisma/client.js';
 import { ratingView } from './rating.js';
+import { waitingRatesOf } from './stop-waiting.js';
 import type { DriverPosition } from '../presence/driver-location.store.js';
 
 export const rideInclude = {
@@ -34,6 +35,7 @@ export const rideInclude = {
   promoRedemption: {
     select: { status: true, discount: true, promo: { select: { code: true } } },
   },
+  stops: { orderBy: { position: 'asc' } },
 } satisfies Prisma.RideInclude;
 
 export type RideWithRelations = Prisma.RideGetPayload<{
@@ -117,6 +119,27 @@ export function presentRide(
       lng: ride.dropoffLng,
       address: ride.dropoffAddress,
     },
+    // Places on the way, in order, before the drop-off. While the driver is
+    // at one (arrivedAt set, departedAt not yet) the apps count its waiting
+    // from arrivedAt: `waiting.freeMinutes` free, then `waiting.perMinute`.
+    stops: ride.stops.map((stop) => ({
+      position: stop.position,
+      lat: stop.lat,
+      lng: stop.lng,
+      address: stop.address,
+      arrivedAt: stop.arrivedAt,
+      departedAt: stop.departedAt,
+      waitedSeconds: stop.waitedSeconds,
+      waitingCharge: stop.waitingCharge,
+    })),
+    waiting: ride.stops.length
+      ? {
+          freeMinutes: waitingRatesOf(ride.rates).freeWaitingMinutes,
+          perMinute: waitingRatesOf(ride.rates).waitingPerMinute,
+          // The total, once the ride is completed (part of `fare`).
+          charge: ride.waitingCharge,
+        }
+      : null,
     estimate: {
       fare: ride.estimatedFare,
       distanceMeters: ride.estimatedDistanceMeters,

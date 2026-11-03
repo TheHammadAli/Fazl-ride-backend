@@ -71,32 +71,56 @@ export class FaresService {
     return updated;
   }
 
+  // `stops`: places on the way, in order. A trip may come back to where it
+  // started (pickup, a stop, home again) as long as it goes somewhere.
   private assertReasonableTrip(
     pickup: LatLng,
     dropoff: LatLng,
     tripType: TripType,
+    stops: LatLng[] = [],
   ) {
-    const straight = haversineMeters(pickup, dropoff);
-    if (straight < MIN_TRIP_METERS) {
+    const points = [pickup, ...stops, dropoff];
+    const path = points
+      .slice(1)
+      .reduce((sum, to, i) => sum + haversineMeters(points[i], to), 0);
+    if (path < MIN_TRIP_METERS) {
       throw new BadRequestException(
         'Pickup and drop-off are too close together',
       );
     }
+    const furthest = Math.max(
+      ...points.slice(1).map((p) => haversineMeters(pickup, p)),
+    );
     // Further than any one city reaches: the cheaper in-city rates do not
     // apply, whatever the app sent.
     if (
       tripType === TripType.within_city &&
-      straight > this.settings.withinCityMaxMeters
+      furthest > this.settings.withinCityMaxMeters
     ) {
       throw new BadRequestException(
         'This trip goes between cities. Book it as City to City.',
       );
     }
-    if (straight > CITY_TO_CITY_MAX_METERS) {
+    if (furthest > CITY_TO_CITY_MAX_METERS) {
       throw new BadRequestException(
         `Trips longer than ${CITY_TO_CITY_MAX_METERS / 1000} km are not supported`,
       );
     }
+  }
+
+  // Distance and time through every point in order: pickup, the stops, the
+  // drop-off.
+  private async routeThrough(points: LatLng[]) {
+    const legs = await Promise.all(
+      points.slice(1).map((to, i) => this.routing.route(points[i], to)),
+    );
+    return legs.reduce(
+      (sum, leg) => ({
+        distanceMeters: sum.distanceMeters + leg.distanceMeters,
+        durationSeconds: sum.durationSeconds + leg.durationSeconds,
+      }),
+      { distanceMeters: 0, durationSeconds: 0 },
+    );
   }
 
   // Price and route for one category, used when a ride is actually requested.
@@ -105,10 +129,11 @@ export class FaresService {
     dropoff: LatLng,
     category: string,
     tripType: TripType,
+    stops: LatLng[] = [],
   ) {
-    this.assertReasonableTrip(pickup, dropoff, tripType);
+    this.assertReasonableTrip(pickup, dropoff, tripType, stops);
     const [route, config] = await Promise.all([
-      this.routing.route(pickup, dropoff),
+      this.routeThrough([pickup, ...stops, dropoff]),
       this.prisma.fareConfig.findUnique({
         where: { category_tripType: { category, tripType } },
         include: { categoryRef: true },
@@ -127,6 +152,8 @@ export class FaresService {
         perKm: config.perKm,
         perMinute: config.perMinute,
         minimumFare: config.minimumFare,
+        freeWaitingMinutes: config.freeWaitingMinutes,
+        waitingPerMinute: config.waitingPerMinute,
       },
     };
   }
@@ -138,10 +165,14 @@ export class FaresService {
     dropoff: LatLng,
     tripType: TripType,
     service = 'ride',
+    stops: LatLng[] = [],
   ) {
-    this.assertReasonableTrip(pickup, dropoff, tripType);
+    if (stops.length && service !== 'ride') {
+      throw new BadRequestException('Stops on the way are for rides only');
+    }
+    this.assertReasonableTrip(pickup, dropoff, tripType, stops);
     const [route, configs, nearby] = await Promise.all([
-      this.routing.route(pickup, dropoff),
+      this.routeThrough([pickup, ...stops, dropoff]),
       this.listActiveConfigs(tripType, service),
       this.locations.findNearby({
         ...pickup,
@@ -172,12 +203,18 @@ export class FaresService {
           nearbyDrivers: drivers.length,
           pickupEtaSeconds: toPickup?.durationSeconds ?? null,
           pickupDistanceMeters: toPickup?.distanceMeters ?? null,
+          // What waiting at a stop costs on top of the fare.
+          waiting: {
+            freeMinutes: config.freeWaitingMinutes,
+            perMinute: config.waitingPerMinute,
+          },
         };
       }),
     );
     return {
       distanceMeters: route.distanceMeters,
       durationSeconds: route.durationSeconds,
+      stops: stops.length,
       currency: 'PKR',
       tripType,
       // Lets the app decide, before requesting, whether to show an editable

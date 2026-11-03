@@ -30,4 +30,19 @@ export class UpdateFareConfigDto {
   @Min(0)
   @Max(100_000)
   minimumFare?: number;
+
+  // Waiting at a passenger's stop: free minutes, then this much per minute.
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(60)
+  freeWaitingMinutes?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  @Max(10_000)
+  waitingPerMinute?: number;
 }

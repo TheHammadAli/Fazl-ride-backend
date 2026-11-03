@@ -28,6 +28,7 @@ function setup(ride: Record<string, unknown> = {}) {
         paymentMethod: 'cash',
         driver: { name: 'Ali' },
         vehicle: { make: 'Honda', model: 'CD 70', color: 'Red' },
+        _count: { stops: 0 },
         ...ride,
       }),
     },
@@ -101,6 +102,19 @@ describe('PushNotificationsService', () => {
     expect(sent[0].message.body).toBe('F-6 Markaz → Faisal Mosque · Rs 350');
     expect(sent[0].message.ttlSeconds).toBeGreaterThan(25);
     expect(sent[0].message.data).toEqual({ type: 'ride_offer', rideId: 'r1' });
+  });
+
+  it('says how many stops a ride request has on the way', async () => {
+    const { events, sent, settle } = setup({ _count: { stops: 2 } });
+    events.emit('ride.offer.created', {
+      rideId: 'r1',
+      driverId: 'd1',
+      expiresAt: new Date(Date.now() + 30_000),
+    });
+    await settle();
+    expect(sent[0].message.body).toBe(
+      'F-6 Markaz → Faisal Mosque · 2 stops · Rs 350',
+    );
   });
 
   it('says freight for a freight request', async () => {

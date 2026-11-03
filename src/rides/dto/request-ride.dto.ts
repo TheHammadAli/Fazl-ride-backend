@@ -1,5 +1,7 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  IsArray,
   IsDateString,
   IsBoolean,
   IsDefined,
@@ -17,6 +19,7 @@ import {
 } from 'class-validator';
 import { LatLngDto } from '../../common/dto/geo.dto.js';
 import { PaymentMethod, TripType } from '../../generated/prisma/enums.js';
+import { MAX_STOPS } from '../stop-waiting.js';
 
 // A point plus the address text the app shows to the driver and in history.
 export class PlaceDto extends LatLngDto {
@@ -36,6 +39,15 @@ export class RequestRideDto {
   @ValidateNested()
   @Type(() => PlaceDto)
   dropoff: PlaceDto;
+
+  // Rides only: places to stop at on the way, in order, before the final
+  // drop-off (inDrive style). Waiting at them past the free minutes is charged.
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MAX_STOPS)
+  @ValidateNested({ each: true })
+  @Type(() => PlaceDto)
+  stops?: PlaceDto[];
 
   // Not a fixed enum any more (see admin/vehicle-categories); RidesService
   // rejects an unknown/inactive one when it looks up the fare for it.

@@ -59,6 +59,8 @@ export class RealtimeEventsService implements OnModuleInit, OnModuleDestroy {
 
       case 'ride.arrived':
       case 'ride.started':
+      case 'ride.stop_arrived':
+      case 'ride.stop_departed':
       case 'ride.completed':
         return this.sendRideUpdate(p.rideId);
 

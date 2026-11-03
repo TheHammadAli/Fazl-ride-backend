@@ -311,6 +311,10 @@ model FareConfig {
   perKm       Float
   perMinute   Float
   minimumFare Int
+  // Waiting at a passenger's stop: free for the first minutes, then this
+  // much for every minute begun after that (whole PKR per minute).
+  freeWaitingMinutes Int   @default(3)
+  waitingPerMinute   Float @default(0)
   updatedAt   DateTime @updatedAt
 
   categoryRef VehicleCategory @relation(fields: [category], references: [key])
@@ -507,6 +511,10 @@ model Ride {
   // Promo code discount on the final fare (FAZL pays it to the driver).
   promoDiscount Int?
 
+  // What the stops' waiting came to, set when the ride completes; part of
+  // `fare`. See RideStop.
+  waitingCharge Int?
+
   requestedAt DateTime  @default(now())
   acceptedAt  DateTime?
   arrivedAt   DateTime?
@@ -529,6 +537,7 @@ model Ride {
   supportTickets  SupportTicket[]
   promoRedemption PromoRedemption?
   schedule        RideSchedule?      @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+  stops           RideStop[]
 
   @@unique([scheduleId, scheduledAt])
   @@index([passengerId, status])
@@ -538,6 +547,30 @@ model Ride {
   @@index([tripType])
   @@index([status, scheduledAt])
   @@map("rides")
+}
+
+// A stop on the way (inDrive style): a place between the pickup and the final
+// drop-off, in the order the passenger put them. The driver presses Arrived
+// and Continue at each; the time stood there past the free minutes is charged
+// (FareConfig.waitingPerMinute). A stop never arrived at was skipped.
+model RideStop {
+  id            String    @id @default(uuid()) @db.Uuid
+  rideId        String    @db.Uuid
+  // 1, 2, 3... in the order they are visited.
+  position      Int
+  lat           Float
+  lng           Float
+  address       String
+  arrivedAt     DateTime?
+  departedAt    DateTime?
+  // Set when the driver leaves it (or completes the ride while there).
+  waitedSeconds Int?
+  waitingCharge Int?
+
+  ride Ride @relation(fields: [rideId], references: [id], onDelete: Cascade)
+
+  @@unique([rideId, position])
+  @@map("ride_stops")
 }
 
 // In-app chat between the passenger and the assigned driver. Only exists
