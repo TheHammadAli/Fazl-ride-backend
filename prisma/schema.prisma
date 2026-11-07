@@ -338,6 +338,9 @@ model DriverPresence {
   location          Unsupported("geography(Point,4326)")?
   heading           Float?
   speedKmh          Float?
+  // The driver's live average speed while moving (stops left out), for
+  // travel times; null until they have driven. See routing/travel-speed.ts.
+  avgSpeedKmh       Float?
   locationUpdatedAt DateTime?
   onlineSince       DateTime?
   updatedAt         DateTime                              @updatedAt

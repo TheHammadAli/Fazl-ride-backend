@@ -6,11 +6,15 @@ import {
 import { haversineMeters } from '../common/geo.js';
 import type { LatLng } from '../common/geo.js';
 import { AuditService } from '../audit/audit.service.js';
-import { DriverLocationStore } from '../presence/driver-location.store.js';
+import {
+  DriverLocationStore,
+  type NearbyDriver,
+} from '../presence/driver-location.store.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { UpdateFareConfigDto } from './dto/fare-config.dto.js';
 import { calculateFare } from './fare.calculator.js';
 import { RoutingProvider } from '../routing/routing.provider.js';
+import { travelSpeedKmh } from '../routing/travel-speed.js';
 import { RideSettings } from './rides.settings.js';
 import { TripType } from '../generated/prisma/enums.js';
 
@@ -20,6 +24,11 @@ const MIN_TRIP_METERS = 50;
 const CITY_TO_CITY_MAX_METERS = 2_000_000;
 // Drivers further than this from the pickup are not shown as "nearby".
 const NEARBY_RADIUS_METERS = 5_000;
+const NEARBY_LIMIT = 50;
+
+// How fast these drivers really go: the mean of their live averages.
+const speedOf = (drivers: NearbyDriver[]) =>
+  travelSpeedKmh(drivers.map((d) => d.avgSpeedKmh));
 
 @Injectable()
 export class FaresService {
@@ -109,10 +118,12 @@ export class FaresService {
   }
 
   // Distance and time through every point in order: pickup, the stops, the
-  // drop-off.
-  private async routeThrough(points: LatLng[]) {
+  // drop-off - the time at `speedKmh` when given.
+  private async routeThrough(points: LatLng[], speedKmh?: number) {
     const legs = await Promise.all(
-      points.slice(1).map((to, i) => this.routing.route(points[i], to)),
+      points
+        .slice(1)
+        .map((to, i) => this.routing.route(points[i], to, speedKmh)),
     );
     return legs.reduce(
       (sum, leg) => ({
@@ -132,8 +143,13 @@ export class FaresService {
     stops: LatLng[] = [],
   ) {
     this.assertReasonableTrip(pickup, dropoff, tripType, stops);
-    const [route, config] = await Promise.all([
-      this.routeThrough([pickup, ...stops, dropoff]),
+    const [drivers, config] = await Promise.all([
+      this.locations.findNearby({
+        ...pickup,
+        radiusMeters: NEARBY_RADIUS_METERS,
+        category,
+        limit: NEARBY_LIMIT,
+      }),
       this.prisma.fareConfig.findUnique({
         where: { category_tripType: { category, tripType } },
         include: { categoryRef: true },
@@ -142,6 +158,12 @@ export class FaresService {
     if (!config || !config.categoryRef.active) {
       throw new NotFoundException('Fare config not found');
     }
+    // Timed like the estimate the passenger just saw: at the speed this
+    // type's drivers go around the pickup.
+    const route = await this.routeThrough(
+      [pickup, ...stops, dropoff],
+      speedOf(drivers),
+    );
     return {
       distanceMeters: route.distanceMeters,
       durationSeconds: route.durationSeconds,
@@ -171,13 +193,14 @@ export class FaresService {
       throw new BadRequestException('Stops on the way are for rides only');
     }
     this.assertReasonableTrip(pickup, dropoff, tripType, stops);
+    const points = [pickup, ...stops, dropoff];
     const [route, configs, nearby] = await Promise.all([
-      this.routeThrough([pickup, ...stops, dropoff]),
+      this.routeThrough(points),
       this.listActiveConfigs(tripType, service),
       this.locations.findNearby({
         ...pickup,
         radiusMeters: NEARBY_RADIUS_METERS,
-        limit: 50,
+        limit: NEARBY_LIMIT,
       }),
     ]);
     const estimates = await Promise.all(
@@ -186,20 +209,26 @@ export class FaresService {
         const drivers = nearby.filter((d) =>
           d.categories.includes(config.category),
         );
+        // This type's own time: as fast as its drivers go around here, so a
+        // bike and a car on the same road take different times.
+        const speedKmh = speedOf(drivers);
+        const trip = await this.routeThrough(points, speedKmh);
         const nearest = drivers[0]; // already ordered by distance
         const toPickup = nearest
           ? await this.routing.route(
               { lat: nearest.lat, lng: nearest.lng },
               pickup,
+              nearest.avgSpeedKmh ?? speedKmh,
             )
           : null;
         return {
           category: config.category,
           fare: calculateFare(
             config,
-            route.distanceMeters,
-            route.durationSeconds,
+            trip.distanceMeters,
+            trip.durationSeconds,
           ),
+          durationSeconds: trip.durationSeconds,
           nearbyDrivers: drivers.length,
           pickupEtaSeconds: toPickup?.durationSeconds ?? null,
           pickupDistanceMeters: toPickup?.distanceMeters ?? null,
@@ -213,6 +242,7 @@ export class FaresService {
     );
     return {
       distanceMeters: route.distanceMeters,
+      // At the default speed; each estimate has its own type's time.
       durationSeconds: route.durationSeconds,
       stops: stops.length,
       currency: 'PKR',

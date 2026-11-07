@@ -8,6 +8,7 @@ import { Subscription } from 'rxjs';
 import { DomainEvents } from '../events/domain-events.service.js';
 import { RidesService } from '../rides/rides.service.js';
 import { RoutingProvider } from '../routing/routing.provider.js';
+import { travelSpeedKmh } from '../routing/travel-speed.js';
 import { WalletService } from '../wallet/wallet.service.js';
 import { RealtimeGateway } from './realtime.gateway.js';
 
@@ -194,6 +195,7 @@ export class RealtimeEventsService implements OnModuleInit, OnModuleDestroy {
     lat: number;
     lng: number;
     busy: boolean;
+    avgSpeedKmh?: number | null;
   }) {
     if (!p.busy) return;
     const now = Date.now();
@@ -207,12 +209,14 @@ export class RealtimeEventsService implements OnModuleInit, OnModuleDestroy {
     if (!trip) return;
     this.lastLocationSent.set(p.userId, now);
 
-    // While the driver is coming to the pickup, include how far and how long is left.
+    // While the driver is coming to the pickup, include how far and how long
+    // is left, at the speed this driver really goes.
     const toPickup =
       trip.status === 'accepted'
         ? await this.routing.route(
             { lat: p.lat, lng: p.lng },
             { lat: trip.pickupLat, lng: trip.pickupLng },
+            travelSpeedKmh([p.avgSpeedKmh]),
           )
         : null;
     this.gateway.emitToUser(trip.passengerId, 'driver:location', {

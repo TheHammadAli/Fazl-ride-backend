@@ -7,6 +7,11 @@ export interface RouteEstimate {
 
 // Distance and travel time between two points. Swap the implementation bound
 // in RidesModule (for example Google Directions) without touching ride logic.
+// `speedKmh`: how fast the vehicle really goes (travel-speed.ts), when known.
 export abstract class RoutingProvider {
-  abstract route(from: LatLng, to: LatLng): Promise<RouteEstimate>;
+  abstract route(
+    from: LatLng,
+    to: LatLng,
+    speedKmh?: number,
+  ): Promise<RouteEstimate>;
 }

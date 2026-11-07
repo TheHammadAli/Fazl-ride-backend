@@ -13,6 +13,7 @@ import { CancellationsService } from '../cancellations/cancellations.service.js'
 import { findMissingProfile } from '../drivers/driver-requirements.js';
 import { DomainEvents } from '../events/domain-events.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { nextAverageSpeed } from '../routing/travel-speed.js';
 import { DestinationService } from './destination.service.js';
 import { DriverLocationStore } from './driver-location.store.js';
 import { WalletService } from '../wallet/wallet.service.js';
@@ -116,15 +117,19 @@ export class PresenceService {
     });
     if (!presence?.isOnline)
       throw new ConflictException('Go online before sending locations');
+    // How fast this driver really goes, for every travel time shown.
+    const avgSpeedKmh = nextAverageSpeed(presence.avgSpeedKmh, dto.speedKmh);
     await this.store.updateLocation(userId, dto, {
       heading: dto.heading,
       speedKmh: dto.speedKmh,
+      avgSpeedKmh,
     });
     this.events.emit('driver.location', {
       userId,
       lat: dto.lat,
       lng: dto.lng,
       busy: presence.busy,
+      avgSpeedKmh,
     });
     await this.destination.checkArrival(userId, dto);
     return { ok: true };

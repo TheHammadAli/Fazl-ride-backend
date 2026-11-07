@@ -10,6 +10,7 @@ import { takesTowardsDestination } from '../presence/destination-rule.js';
 import { DriverLocationStore } from '../presence/driver-location.store.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { RoutingProvider } from '../routing/routing.provider.js';
+import { travelSpeedKmh } from '../routing/travel-speed.js';
 import { RideSettings } from './rides.settings.js';
 import { WalletService } from '../wallet/wallet.service.js';
 import { LevelsService } from '../levels/levels.service.js';
@@ -118,9 +119,11 @@ export class MatchingService
     const pickup = { lat: ride.pickupLat, lng: ride.pickupLng };
     const data = await Promise.all(
       chosen.map(async (d) => {
+        // At the speed this driver really goes.
         const route = await this.routing.route(
           { lat: d.lat, lng: d.lng },
           pickup,
+          travelSpeedKmh([d.avgSpeedKmh]),
         );
         return {
           rideId: ride.id,

@@ -65,13 +65,15 @@ export class PostgisDriverLocationStore extends DriverLocationStore {
   async updateLocation(
     userId: string,
     at: LatLng,
-    extra: { heading?: number; speedKmh?: number },
+    extra: { heading?: number; speedKmh?: number; avgSpeedKmh?: number | null },
   ) {
+    // No average given: the one already kept stays.
     await this.prisma.$executeRaw`
       UPDATE driver_presence
       SET "location" = ST_SetSRID(ST_MakePoint(${at.lng}::float8, ${at.lat}::float8), 4326)::geography,
           "heading" = ${extra.heading ?? null}::float8,
           "speedKmh" = ${extra.speedKmh ?? null}::float8,
+          "avgSpeedKmh" = COALESCE(${extra.avgSpeedKmh ?? null}::float8, "avgSpeedKmh"),
           "locationUpdatedAt" = now(),
           "updatedAt" = now()
       WHERE "userId" = ${userId}::uuid AND "isOnline"`;
@@ -94,13 +96,14 @@ export class PostgisDriverLocationStore extends DriverLocationStore {
         lat: number;
         lng: number;
         heading: number | null;
+        avgSpeedKmh: number | null;
       }[]
     >`
       SELECT "userId", "vehicleId", "category", "categories",
              ST_Distance("location", ST_SetSRID(ST_MakePoint(${q.lng}::float8, ${q.lat}::float8), 4326)::geography) AS distance,
              ST_Y("location"::geometry) AS lat,
              ST_X("location"::geometry) AS lng,
-             "heading"
+             "heading", "avgSpeedKmh"
       FROM driver_presence
       WHERE "isOnline" AND NOT "busy" AND "location" IS NOT NULL
         AND "locationUpdatedAt" > now() - make_interval(secs => ${this.ttlSeconds}::int)
@@ -119,15 +122,22 @@ export class PostgisDriverLocationStore extends DriverLocationStore {
       lat: r.lat,
       lng: r.lng,
       heading: r.heading,
+      avgSpeedKmh: r.avgSpeedKmh,
     }));
   }
 
   async getLocation(userId: string): Promise<DriverPosition | null> {
     const rows = await this.prisma.$queryRaw<
-      { lat: number; lng: number; heading: number | null; updatedAt: Date }[]
+      {
+        lat: number;
+        lng: number;
+        heading: number | null;
+        avgSpeedKmh: number | null;
+        updatedAt: Date;
+      }[]
     >`
       SELECT ST_Y("location"::geometry) AS lat, ST_X("location"::geometry) AS lng,
-             "heading", "locationUpdatedAt" AS "updatedAt"
+             "heading", "avgSpeedKmh", "locationUpdatedAt" AS "updatedAt"
       FROM driver_presence
       WHERE "userId" = ${userId}::uuid AND "isOnline" AND "location" IS NOT NULL`;
     return rows[0] ?? null;

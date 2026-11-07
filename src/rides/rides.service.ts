@@ -23,6 +23,7 @@ import {
 import { ratingView } from './rating.js';
 import { RatingsService } from './ratings.service.js';
 import { RoutingProvider } from '../routing/routing.provider.js';
+import { travelSpeedKmh } from '../routing/travel-speed.js';
 import { PromosService } from '../promos/promos.service.js';
 import { ServiceAreasService } from '../service-areas/service-areas.service.js';
 import { StorageService } from '../storage/storage.service.js';
@@ -1431,10 +1432,11 @@ export class RidesService {
     let driverEtaSeconds: number | null = null;
     let driverDistanceToPickupMeters: number | null = null;
     if (driverLocation && ride.status === 'accepted') {
-      const toPickup = await this.routing.route(driverLocation, {
-        lat: ride.pickupLat,
-        lng: ride.pickupLng,
-      });
+      const toPickup = await this.routing.route(
+        driverLocation,
+        { lat: ride.pickupLat, lng: ride.pickupLng },
+        travelSpeedKmh([driverLocation.avgSpeedKmh]),
+      );
       driverEtaSeconds = toPickup.durationSeconds;
       driverDistanceToPickupMeters = toPickup.distanceMeters;
     }
