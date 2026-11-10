@@ -87,9 +87,11 @@ export const SHARE_PAGE_HTML = `<!doctype html>
 
   function ensureMap(t) {
     if (map || !window.L) return;
-    map = L.map('map', { zoomControl:false, attributionControl:true });
+    map = L.map('map', { zoomControl:false, attributionControl:false });
+    // At the top: the sheet covers the bottom of the map.
+    L.control.attribution({ position:'topright', prefix:false }).addTo(map);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19, attribution: '&copy; OpenStreetMap'
+      maxZoom: 19, attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
     var pts = [t.pickup].concat(t.stops || [], [t.dropoff]);
     pts.forEach(function (p, i) {
