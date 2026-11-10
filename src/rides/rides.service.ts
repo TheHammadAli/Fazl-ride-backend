@@ -819,6 +819,32 @@ export class RidesService {
         })
       : [];
     const driverById = new Map(drivers.map((d) => [d.id, d]));
+    // Trips done and the level reached: what customers look at to choose.
+    const [tripCounts, profiles, levels] = await Promise.all([
+      this.prisma.ride.groupBy({
+        by: ['driverId'],
+        where: { driverId: { in: driverIds }, status: 'completed' },
+        _count: { _all: true },
+      }),
+      this.prisma.driverProfile.findMany({
+        where: { userId: { in: driverIds } },
+        select: { userId: true, levelKey: true },
+      }),
+      this.prisma.driverLevel.findMany({
+        where: { active: true },
+        select: { key: true, name: true, color: true, icon: true },
+      }),
+    ]);
+    const tripsByDriver = new Map(
+      tripCounts.map((t) => [t.driverId, t._count._all]),
+    );
+    const levelByKey = new Map(levels.map((l) => [l.key, l]));
+    const levelByDriver = new Map(
+      profiles.map((p) => [
+        p.userId,
+        p.levelKey ? (levelByKey.get(p.levelKey) ?? null) : null,
+      ]),
+    );
     const vehicleIdByDriver = new Map(
       presences.map((p) => [p.userId, p.vehicleId]),
     );
@@ -848,6 +874,8 @@ export class RidesService {
               name: driver.name,
               avatarUrl: avatarUrlByDriver.get(driver.id) ?? null,
               rating: ratingView(driver.ratingSum, driver.ratingCount),
+              trips: tripsByDriver.get(driver.id) ?? 0,
+              level: levelByDriver.get(driver.id) ?? null,
               vehicle: vehicle ?? null,
             }
           : null,
