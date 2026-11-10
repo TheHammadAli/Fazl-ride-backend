@@ -287,9 +287,11 @@ export class PushNotificationsService implements OnModuleInit, OnModuleDestroy {
         offeredFare: true,
         estimatedFare: true,
         paymentMethod: true,
+        _count: { select: { stops: true } },
       },
     });
     if (!ride) return;
+    const stops = ride._count.stops;
     const left = expiresAt
       ? Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000)
       : 30;
@@ -297,7 +299,7 @@ export class PushNotificationsService implements OnModuleInit, OnModuleDestroy {
     const freight = ride.service === 'freight';
     await this.devices.notify([driverId], {
       title: freight ? 'New freight request' : 'New ride request',
-      body: `${short(ride.pickupAddress)} → ${short(ride.dropoffAddress)} · ${rs(ride.offeredFare ?? ride.estimatedFare)}${ride.paymentMethod === 'wallet' ? ' · Wallet' : ''}`,
+      body: `${short(ride.pickupAddress)} → ${short(ride.dropoffAddress)}${stops ? ` · ${stops} stop${stops === 1 ? '' : 's'}` : ''} · ${rs(ride.offeredFare ?? ride.estimatedFare)}${ride.paymentMethod === 'wallet' ? ' · Wallet' : ''}`,
       data: { type: 'ride_offer', rideId },
       channel: 'ride_requests',
       ttlSeconds: left,

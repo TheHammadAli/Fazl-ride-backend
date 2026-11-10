@@ -1,5 +1,8 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  IsArray,
+  IsIn,
   IsDateString,
   IsBoolean,
   IsDefined,
@@ -17,6 +20,8 @@ import {
 } from 'class-validator';
 import { LatLngDto } from '../../common/dto/geo.dto.js';
 import { PaymentMethod, TripType } from '../../generated/prisma/enums.js';
+import { MAX_STOPS } from '../stop-waiting.js';
+import { RIDE_OPTIONS } from '../ride-extras.js';
 
 // A point plus the address text the app shows to the driver and in history.
 export class PlaceDto extends LatLngDto {
@@ -24,6 +29,19 @@ export class PlaceDto extends LatLngDto {
   @MinLength(2)
   @MaxLength(200)
   address: string;
+}
+
+// Booked for someone else: who is actually riding.
+export class RiderDto {
+  @IsString()
+  @MinLength(2)
+  @MaxLength(60)
+  name: string;
+
+  // A Pakistani mobile number in any usual form (03..., +92...).
+  @IsString()
+  @MaxLength(20)
+  phone: string;
 }
 
 export class RequestRideDto {
@@ -36,6 +54,34 @@ export class RequestRideDto {
   @ValidateNested()
   @Type(() => PlaceDto)
   dropoff: PlaceDto;
+
+  // Rides only: places to stop at on the way, in order, before the final
+  // drop-off (inDrive style). Waiting at them past the free minutes is charged.
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MAX_STOPS)
+  @ValidateNested({ each: true })
+  @Type(() => PlaceDto)
+  stops?: PlaceDto[];
+
+  // A note for the driver ("gate no. 3", "I have two big bags").
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  note?: string;
+
+  // Ticked options; keys from RIDE_OPTIONS (repeats are dropped).
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsIn(RIDE_OPTIONS, { each: true })
+  options?: string[];
+
+  // Booked for someone else. Left out, the customer is the one riding.
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => RiderDto)
+  rider?: RiderDto;
 
   // Not a fixed enum any more (see admin/vehicle-categories); RidesService
   // rejects an unknown/inactive one when it looks up the fare for it.

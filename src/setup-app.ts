@@ -1,8 +1,15 @@
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import {
+  INestApplication,
+  RequestMethod,
+  ValidationPipe,
+} from '@nestjs/common';
 
 // Shared by main.ts and the e2e tests so both run with the same pipeline.
 export function setupApp(app: INestApplication) {
-  app.setGlobalPrefix('api/v1');
+  // The shared-trip page people open from a link lives at /t/<token>.
+  app.setGlobalPrefix('api/v1', {
+    exclude: [{ path: 't/:token', method: RequestMethod.GET }],
+  });
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

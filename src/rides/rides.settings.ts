@@ -18,6 +18,9 @@ export class RideSettings {
   // A final fare is capped at this multiple of the estimate, so one GPS glitch
   // cannot turn a cash ride into a huge bill.
   readonly maxFareFactor: number;
+  // At most this many minutes of waiting are charged at one stop, so a driver
+  // who forgets to press Continue does not run up the passenger's bill.
+  readonly maxStopWaitMinutes: number;
   // How long after completion a ride can still be rated.
   readonly ratingWindowDays: number;
   readonly tickMs: number;
@@ -75,6 +78,7 @@ export class RideSettings {
       config.get('ARRIVAL_RADIUS_METERS') ?? 300,
     );
     this.maxFareFactor = Number(config.get('MAX_FARE_FACTOR') ?? 3);
+    this.maxStopWaitMinutes = Number(config.get('MAX_STOP_WAIT_MINUTES') ?? 60);
     this.ratingWindowDays = Number(config.get('RATING_WINDOW_DAYS') ?? 7);
     this.tickMs = Number(config.get('MATCHING_TICK_MS') ?? 5000);
     this.sweeperEnabled =

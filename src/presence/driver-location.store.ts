@@ -10,12 +10,15 @@ export interface NearbyDriver {
   lat: number;
   lng: number;
   heading: number | null;
+  // Live average speed while moving (routing/travel-speed.ts); null until known.
+  avgSpeedKmh: number | null;
 }
 
 export interface DriverPosition {
   lat: number;
   lng: number;
   heading: number | null;
+  avgSpeedKmh: number | null;
   updatedAt: Date;
 }
 
@@ -39,7 +42,7 @@ export abstract class DriverLocationStore {
   abstract updateLocation(
     userId: string,
     at: LatLng,
-    extra: { heading?: number; speedKmh?: number },
+    extra: { heading?: number; speedKmh?: number; avgSpeedKmh?: number | null },
   ): Promise<void>;
   abstract setBusy(userId: string, busy: boolean): Promise<void>;
   abstract findNearby(query: NearbyQuery): Promise<NearbyDriver[]>;

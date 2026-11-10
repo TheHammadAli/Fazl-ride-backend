@@ -38,6 +38,7 @@ import { PromosModule } from './promos/promos.module.js';
 import { ServiceAreasModule } from './service-areas/service-areas.module.js';
 import { SavedPlacesModule } from './saved-places/saved-places.module.js';
 import { LevelsModule } from './levels/levels.module.js';
+import { FrequentRidesModule } from './frequent-rides/frequent-rides.module.js';
 
 @Module({
   imports: [
@@ -74,6 +75,7 @@ import { LevelsModule } from './levels/levels.module.js';
     PlacesModule,
     AdminStatsModule,
     LevelsModule,
+    FrequentRidesModule,
     RidesModule,
     ChatModule,
     RealtimeModule,

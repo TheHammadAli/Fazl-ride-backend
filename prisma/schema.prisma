@@ -119,28 +119,31 @@ model User {
   createdAt          DateTime   @default(now())
   updatedAt          DateTime   @updatedAt
 
-  roles             UserRole[]
-  refreshTokens     RefreshToken[]
-  driverProfile     DriverProfile?
-  ridesAsPassenger  Ride[]              @relation("RidePassenger")
-  ridesAsDriver     Ride[]              @relation("RideDriver")
-  rideOffers        RideOffer[]
-  cancellations     RideCancellation[]
-  ratingsGiven      RideRating[]        @relation("RatingRater")
-  ratingsReceived   RideRating[]        @relation("RatingRatee")
-  earnings          DriverEarning[]
-  sentRideMessages  RideMessage[]
-  driverDestination DriverDestination?
-  wallet            Wallet?
-  walletEntries     WalletTransaction[]
-  walletRequests    WalletRequest[]
-  devices           DeviceToken[]
-  savedPlaces       SavedPlace[]
-  rideSchedules     RideSchedule[]
-  safetyAlerts      SafetyAlert[]       @relation("SafetyAlertUser")
-  supportTickets    SupportTicket[]     @relation("TicketUser")
-  ticketsAgainst    SupportTicket[]     @relation("TicketAgainst")
-  ticketMessages    SupportMessage[]
+  roles                   UserRole[]
+  refreshTokens           RefreshToken[]
+  driverProfile           DriverProfile?
+  ridesAsPassenger        Ride[]                   @relation("RidePassenger")
+  ridesAsDriver           Ride[]                   @relation("RideDriver")
+  rideOffers              RideOffer[]
+  cancellations           RideCancellation[]
+  ratingsGiven            RideRating[]             @relation("RatingRater")
+  ratingsReceived         RideRating[]             @relation("RatingRatee")
+  earnings                DriverEarning[]
+  sentRideMessages        RideMessage[]
+  driverDestination       DriverDestination?
+  wallet                  Wallet?
+  walletEntries           WalletTransaction[]
+  walletRequests          WalletRequest[]
+  devices                 DeviceToken[]
+  savedPlaces             SavedPlace[]
+  rideSchedules           RideSchedule[]
+  frequentRideApplication FrequentRideApplication?
+  frequentRideRoutes      FrequentRideRoute[]
+  frequentRideBookings    FrequentRideBooking[]    @relation("FrequentRidePassenger")
+  safetyAlerts            SafetyAlert[]            @relation("SafetyAlertUser")
+  supportTickets          SupportTicket[]          @relation("TicketUser")
+  ticketsAgainst          SupportTicket[]          @relation("TicketAgainst")
+  ticketMessages          SupportMessage[]
 
   @@map("users")
 }
@@ -239,10 +242,11 @@ model Vehicle {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
-  driverProfile DriverProfile    @relation(fields: [driverProfileId], references: [id], onDelete: Cascade)
-  categoryRef   VehicleCategory  @relation(fields: [category], references: [key])
-  documents     DriverDocument[]
-  rides         Ride[]
+  driverProfile      DriverProfile       @relation(fields: [driverProfileId], references: [id], onDelete: Cascade)
+  categoryRef        VehicleCategory     @relation(fields: [category], references: [key])
+  documents          DriverDocument[]
+  rides              Ride[]
+  frequentRideRoutes FrequentRideRoute[]
 
   @@index([driverProfileId])
   @@index([category])
@@ -311,6 +315,10 @@ model FareConfig {
   perKm       Float
   perMinute   Float
   minimumFare Int
+  // Waiting at a passenger's stop: free for the first minutes, then this
+  // much for every minute begun after that (whole PKR per minute).
+  freeWaitingMinutes Int   @default(3)
+  waitingPerMinute   Float @default(0)
   updatedAt   DateTime @updatedAt
 
   categoryRef VehicleCategory @relation(fields: [category], references: [key])
@@ -334,6 +342,9 @@ model DriverPresence {
   location          Unsupported("geography(Point,4326)")?
   heading           Float?
   speedKmh          Float?
+  // The driver's live average speed while moving (stops left out), for
+  // travel times; null until they have driven. See routing/travel-speed.ts.
+  avgSpeedKmh       Float?
   locationUpdatedAt DateTime?
   onlineSince       DateTime?
   updatedAt         DateTime                              @updatedAt
@@ -454,6 +465,16 @@ model Ride {
   dropoffLat     Float
   dropoffLng     Float
   dropoffAddress String
+  // What the customer tells the driver with the request (inDrive style):
+  // a free note and ticked options (keys in ride-extras.ts). Drivers see
+  // both before they make an offer.
+  note    String?
+  options String[] @default([])
+
+  // Booked for someone else: the person actually riding. The driver calls
+  // this number; the customer who booked still follows the ride.
+  riderName  String?
+  riderPhone String?
 
   estimatedDistanceMeters  Int
   estimatedDurationSeconds Int
@@ -507,6 +528,10 @@ model Ride {
   // Promo code discount on the final fare (FAZL pays it to the driver).
   promoDiscount Int?
 
+  // What the stops' waiting came to, set when the ride completes; part of
+  // `fare`. See RideStop.
+  waitingCharge Int?
+
   requestedAt DateTime  @default(now())
   acceptedAt  DateTime?
   arrivedAt   DateTime?
@@ -528,7 +553,9 @@ model Ride {
   safetyAlerts    SafetyAlert[]
   supportTickets  SupportTicket[]
   promoRedemption PromoRedemption?
+  shareLinks      RideShareLink[]
   schedule        RideSchedule?      @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+  stops           RideStop[]
 
   @@unique([scheduleId, scheduledAt])
   @@index([passengerId, status])
@@ -538,6 +565,124 @@ model Ride {
   @@index([tripType])
   @@index([status, scheduledAt])
   @@map("rides")
+}
+
+// A stop on the way (inDrive style): a place between the pickup and the final
+// drop-off, in the order the passenger put them. The driver presses Arrived
+// and Continue at each; the time stood there past the free minutes is charged
+// (FareConfig.waitingPerMinute). A stop never arrived at was skipped.
+model RideStop {
+  id            String    @id @default(uuid()) @db.Uuid
+  rideId        String    @db.Uuid
+  // 1, 2, 3... in the order they are visited.
+  position      Int
+  lat           Float
+  lng           Float
+  address       String
+  arrivedAt     DateTime?
+  departedAt    DateTime?
+  // Set when the driver leaves it (or completes the ride while there).
+  waitedSeconds Int?
+  waitingCharge Int?
+
+  ride Ride @relation(fields: [rideId], references: [id], onDelete: Cascade)
+
+  @@unique([rideId, position])
+  @@map("ride_stops")
+}
+
+// Drivers may publish a recurring shared route only after admin approval.
+model FrequentRideApplication {
+  id         String    @id @default(uuid()) @db.Uuid
+  driverId   String    @unique @db.Uuid
+  status     String    @default("pending") // pending, approved, rejected
+  reason     String?
+  reviewedBy String?   @db.Uuid
+  reviewedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  driver User @relation(fields: [driverId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@map("frequent_ride_applications")
+}
+
+// A driver's repeat route. Stops are ordered from origin to destination.
+model FrequentRideRoute {
+  id            String   @id @default(uuid()) @db.Uuid
+  driverId      String   @db.Uuid
+  vehicleId     String   @db.Uuid
+  title         String?
+  departureTime String
+  days          Int[]
+  seats         Int
+  fare          Int // offered fare per passenger for the full route
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  driver   User                  @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  vehicle  Vehicle               @relation(fields: [vehicleId], references: [id])
+  stops    FrequentRideStop[]
+  bookings FrequentRideBooking[]
+
+  @@index([active, days])
+  @@index([driverId, active])
+  @@map("frequent_ride_routes")
+}
+
+model FrequentRideStop {
+  id       String @id @default(uuid()) @db.Uuid
+  routeId  String @db.Uuid
+  position Int
+  title    String
+  lat      Float
+  lng      Float
+
+  route FrequentRideRoute @relation(fields: [routeId], references: [id], onDelete: Cascade)
+
+  @@unique([routeId, position])
+  @@map("frequent_ride_stops")
+}
+
+model FrequentRideBooking {
+  id           String   @id @default(uuid()) @db.Uuid
+  routeId      String   @db.Uuid
+  passengerId  String   @db.Uuid
+  rideDate     DateTime @db.Date
+  fromPosition Int
+  toPosition   Int
+  seats        Int      @default(1)
+  fare         Int
+  status       String   @default("confirmed") // confirmed, cancelled
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  route     FrequentRideRoute @relation(fields: [routeId], references: [id], onDelete: Cascade)
+  passenger User              @relation("FrequentRidePassenger", fields: [passengerId], references: [id], onDelete: Cascade)
+
+  @@index([routeId, rideDate, status])
+  @@index([passengerId, rideDate])
+  @@map("frequent_ride_bookings")
+}
+
+// "Share my trip": a link anyone can open in a browser, without an account,
+// to follow one ride live. Only the token's hash is stored.
+model RideShareLink {
+  id          String    @id @default(uuid()) @db.Uuid
+  rideId      String    @db.Uuid
+  createdById String    @db.Uuid
+  tokenHash   String    @unique
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  lastUsedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  ride Ride @relation(fields: [rideId], references: [id], onDelete: Cascade)
+
+  @@index([rideId])
+  @@map("ride_share_links")
 }
 
 // In-app chat between the passenger and the assigned driver. Only exists
