@@ -9,7 +9,6 @@ import { RideStatus } from '../generated/prisma/enums.js';
 import { DriverLocationStore } from '../presence/driver-location.store.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { RoutingProvider } from '../routing/routing.provider.js';
-import { storedStops } from './ride-extras.js';
 import { ratingView } from './rating.js';
 
 // A ride can be shared from the moment it is booked until it ends.
@@ -42,7 +41,10 @@ export class RideShareService {
   // The passenger or the driver on the ride makes a link to send.
   async create(userId: string, rideId: string, baseUrl: string) {
     const ride = await this.prisma.ride.findFirst({
-      where: { id: rideId, OR: [{ passengerId: userId }, { driverId: userId }] },
+      where: {
+        id: rideId,
+        OR: [{ passengerId: userId }, { driverId: userId }],
+      },
       select: { status: true, scheduledAt: true },
     });
     if (!ride) throw new NotFoundException('Ride not found');
@@ -61,7 +63,10 @@ export class RideShareService {
   // Stops every link to this ride working (for example sent to the wrong person).
   async revokeAll(userId: string, rideId: string) {
     const ride = await this.prisma.ride.findFirst({
-      where: { id: rideId, OR: [{ passengerId: userId }, { driverId: userId }] },
+      where: {
+        id: rideId,
+        OR: [{ passengerId: userId }, { driverId: userId }],
+      },
       select: { id: true },
     });
     if (!ride) throw new NotFoundException('Ride not found');
@@ -94,6 +99,16 @@ export class RideShareService {
           select: { make: true, model: true, color: true, plateNumber: true },
         },
         categoryRef: { select: { label: true } },
+        stops: {
+          orderBy: { position: 'asc' },
+          select: {
+            lat: true,
+            lng: true,
+            address: true,
+            arrivedAt: true,
+            departedAt: true,
+          },
+        },
       },
     });
     const endedAt = ride.completedAt ?? ride.cancelledAt;
@@ -126,18 +141,25 @@ export class RideShareService {
       service: ride.service,
       vehicleType: ride.categoryRef.label,
       rider: firstName(ride.riderName ?? ride.passenger.name),
-      pickup: { lat: ride.pickupLat, lng: ride.pickupLng, address: ride.pickupAddress },
+      pickup: {
+        lat: ride.pickupLat,
+        lng: ride.pickupLng,
+        address: ride.pickupAddress,
+      },
       dropoff: {
         lat: ride.dropoffLat,
         lng: ride.dropoffLng,
         address: ride.dropoffAddress,
       },
-      stops: storedStops(ride.stops),
+      stops: ride.stops,
       driver:
         ride.driver && ride.status !== 'scheduled'
           ? {
               name: firstName(ride.driver.name),
-              rating: ratingView(ride.driver.ratingSum, ride.driver.ratingCount),
+              rating: ratingView(
+                ride.driver.ratingSum,
+                ride.driver.ratingCount,
+              ),
               vehicle: ride.vehicle,
             }
           : null,

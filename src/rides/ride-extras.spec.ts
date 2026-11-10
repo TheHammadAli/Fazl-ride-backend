@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  cleanNote,
-  cleanOptions,
-  cleanRider,
-} from './ride-extras.js';
+import { cleanNote, cleanOptions, cleanRider } from './ride-extras.js';
 
 describe('cleanOptions', () => {
   it('keeps known options in a fixed order without repeats', () => {
@@ -30,7 +26,9 @@ describe('cleanRider', () => {
   const own = '+923001234567';
 
   it('normalizes the number', () => {
-    expect(cleanRider({ name: ' Ammi  Jaan ', phone: '0321 7654321' }, own)).toEqual({
+    expect(
+      cleanRider({ name: ' Ammi  Jaan ', phone: '0321 7654321' }, own),
+    ).toEqual({
       name: 'Ammi Jaan',
       phone: '+923217654321',
     });
