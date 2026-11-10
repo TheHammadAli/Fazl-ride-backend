@@ -140,6 +140,17 @@ export function presentRide(
           charge: ride.waitingCharge,
         }
       : null,
+    // What the customer told the driver; shown with the request.
+    note: ride.note,
+    options: ride.options,
+    // Booked for someone else: who is riding. The number is shared like the
+    // other phones (only while the ride is on); the driver calls this one.
+    rider: ride.riderName
+      ? {
+          name: ride.riderName,
+          phone: contactOpen ? ride.riderPhone : null,
+        }
+      : null,
     estimate: {
       fare: ride.estimatedFare,
       distanceMeters: ride.estimatedDistanceMeters,
