@@ -20,6 +20,7 @@ import {
   rideInclude,
   RideWithRelations,
 } from './ride.presenter.js';
+import { cleanNote, cleanOptions, cleanRider } from './ride-extras.js';
 import { ratingView } from './rating.js';
 import { RatingsService } from './ratings.service.js';
 import { RoutingProvider } from '../routing/routing.provider.js';
@@ -115,6 +116,7 @@ export class RidesService {
     if (paymentMethod === 'wallet')
       await this.wallet.assertCanPayByWallet(passengerId);
     const tripType = dto.tripType ?? TripType.within_city;
+    const extras = await this.requestExtras(passengerId, dto);
     const quote = await this.fares.quote(
       dto.pickup,
       dto.dropoff,
@@ -160,6 +162,10 @@ export class RidesService {
                 })),
               },
             }),
+            note: extras.note,
+            options: extras.options,
+            riderName: extras.rider?.name,
+            riderPhone: extras.rider?.phone,
             estimatedDistanceMeters: quote.distanceMeters,
             estimatedDurationSeconds: quote.durationSeconds,
             estimatedFare: quote.fare,
@@ -273,6 +279,31 @@ export class RidesService {
       category: ride.category,
     });
     return { ...presentRide(ride), offersSent };
+  }
+
+  // The note and options for the driver, and who is riding when the
+  // customer books for someone else.
+  private async requestExtras(passengerId: string, dto: RequestRideDto) {
+    let rider: { name: string; phone: string } | null = null;
+    if (dto.rider) {
+      const me = await this.prisma.user.findUniqueOrThrow({
+        where: { id: passengerId },
+        select: { phone: true },
+      });
+      const cleaned = cleanRider(dto.rider, me.phone);
+      if (cleaned === 'bad_phone') {
+        throw new BadRequestException({
+          code: 'RIDER_PHONE',
+          message: "The rider's number must be a Pakistani mobile number",
+        });
+      }
+      rider = cleaned;
+    }
+    return {
+      note: cleanNote(dto.note),
+      options: cleanOptions(dto.options),
+      rider,
+    };
   }
 
   // A booking for later (rules in BookingSettings): far enough ahead, not
@@ -788,6 +819,32 @@ export class RidesService {
         })
       : [];
     const driverById = new Map(drivers.map((d) => [d.id, d]));
+    // Trips done and the level reached: what customers look at to choose.
+    const [tripCounts, profiles, levels] = await Promise.all([
+      this.prisma.ride.groupBy({
+        by: ['driverId'],
+        where: { driverId: { in: driverIds }, status: 'completed' },
+        _count: { _all: true },
+      }),
+      this.prisma.driverProfile.findMany({
+        where: { userId: { in: driverIds } },
+        select: { userId: true, levelKey: true },
+      }),
+      this.prisma.driverLevel.findMany({
+        where: { active: true },
+        select: { key: true, name: true, color: true, icon: true },
+      }),
+    ]);
+    const tripsByDriver = new Map(
+      tripCounts.map((t) => [t.driverId, t._count._all]),
+    );
+    const levelByKey = new Map(levels.map((l) => [l.key, l]));
+    const levelByDriver = new Map(
+      profiles.map((p) => [
+        p.userId,
+        p.levelKey ? (levelByKey.get(p.levelKey) ?? null) : null,
+      ]),
+    );
     const vehicleIdByDriver = new Map(
       presences.map((p) => [p.userId, p.vehicleId]),
     );
@@ -817,6 +874,8 @@ export class RidesService {
               name: driver.name,
               avatarUrl: avatarUrlByDriver.get(driver.id) ?? null,
               rating: ratingView(driver.ratingSum, driver.ratingCount),
+              trips: tripsByDriver.get(driver.id) ?? 0,
+              level: levelByDriver.get(driver.id) ?? null,
               vehicle: vehicle ?? null,
             }
           : null,

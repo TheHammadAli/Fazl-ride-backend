@@ -31,6 +31,12 @@ import { SchedulesController } from './schedules.controller.js';
 import { SchedulesService } from './schedules.service.js';
 import { FreightService } from './freight.service.js';
 import { ReservationsService } from './reservations.service.js';
+import {
+  RideShareController,
+  SharedTripController,
+  SharedTripPageController,
+} from './ride-share.controller.js';
+import { RideShareService } from './ride-share.service.js';
 
 @Module({
   imports: [
@@ -54,6 +60,9 @@ import { ReservationsService } from './reservations.service.js';
     AdminFaresController,
     AdminRidesController,
     FreightController,
+    RideShareController,
+    SharedTripController,
+    SharedTripPageController,
   ],
   providers: [
     BookingSettingsService,
@@ -70,6 +79,7 @@ import { ReservationsService } from './reservations.service.js';
     RideSettings,
     FreightService,
     ReservationsService,
+    RideShareService,
   ],
   exports: [FaresService, RidesService, MatchingService],
 })

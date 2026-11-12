@@ -465,6 +465,16 @@ model Ride {
   dropoffLat     Float
   dropoffLng     Float
   dropoffAddress String
+  // What the customer tells the driver with the request (inDrive style):
+  // a free note and ticked options (keys in ride-extras.ts). Drivers see
+  // both before they make an offer.
+  note    String?
+  options String[] @default([])
+
+  // Booked for someone else: the person actually riding. The driver calls
+  // this number; the customer who booked still follows the ride.
+  riderName  String?
+  riderPhone String?
 
   estimatedDistanceMeters  Int
   estimatedDurationSeconds Int
@@ -543,6 +553,7 @@ model Ride {
   safetyAlerts    SafetyAlert[]
   supportTickets  SupportTicket[]
   promoRedemption PromoRedemption?
+  shareLinks      RideShareLink[]
   schedule        RideSchedule?      @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
   stops           RideStop[]
 
@@ -654,6 +665,24 @@ model FrequentRideBooking {
   @@index([routeId, rideDate, status])
   @@index([passengerId, rideDate])
   @@map("frequent_ride_bookings")
+}
+
+// "Share my trip": a link anyone can open in a browser, without an account,
+// to follow one ride live. Only the token's hash is stored.
+model RideShareLink {
+  id          String    @id @default(uuid()) @db.Uuid
+  rideId      String    @db.Uuid
+  createdById String    @db.Uuid
+  tokenHash   String    @unique
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  lastUsedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  ride Ride @relation(fields: [rideId], references: [id], onDelete: Cascade)
+
+  @@index([rideId])
+  @@map("ride_share_links")
 }
 
 // In-app chat between the passenger and the assigned driver. Only exists
