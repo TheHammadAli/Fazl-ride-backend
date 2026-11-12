@@ -938,9 +938,9 @@ export class RidesService {
     const away = Math.round(
       haversineMeters(position, { lat: ride.pickupLat, lng: ride.pickupLng }),
     );
-    if (away > this.settings.arrivalRadiusMeters) {
+    if (away > this.settings.pickupRadiusMeters) {
       throw new ConflictException(
-        `You are ${away} m from the pickup; get within ${this.settings.arrivalRadiusMeters} m first`,
+        `You are ${away} m from the pickup; get within ${this.settings.pickupRadiusMeters} m first`,
       );
     }
     await this.transition(driverId, rideId, 'accepted', {

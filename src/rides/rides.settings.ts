@@ -13,8 +13,11 @@ export class RideSettings {
   // Search radius per step, in metres; the last one is kept until the request expires.
   readonly radiiMeters: number[];
   // Sweeper period. Set MATCHING_SWEEPER=off to disable it (tests, extra instances).
-  // How close (metres) the driver must be to the pickup to press "Arrived".
+  // How close (metres) the driver must be to a stop on the way to press "Arrived" there.
   readonly arrivalRadiusMeters: number;
+  // How close (metres) the driver must be to the pickup to press "Arrived" — wider
+  // than a stop's: the passenger can walk to the car or wave it down on the way.
+  readonly pickupRadiusMeters: number;
   // A final fare is capped at this multiple of the estimate, so one GPS glitch
   // cannot turn a cash ride into a huge bill.
   readonly maxFareFactor: number;
@@ -76,6 +79,9 @@ export class RideSettings {
       .filter((v) => v > 0);
     this.arrivalRadiusMeters = Number(
       config.get('ARRIVAL_RADIUS_METERS') ?? 300,
+    );
+    this.pickupRadiusMeters = Number(
+      config.get('PICKUP_RADIUS_METERS') ?? 1000,
     );
     this.maxFareFactor = Number(config.get('MAX_FARE_FACTOR') ?? 3);
     this.maxStopWaitMinutes = Number(config.get('MAX_STOP_WAIT_MINUTES') ?? 60);
