@@ -81,7 +81,7 @@ export class RideSettings {
       config.get('ARRIVAL_RADIUS_METERS') ?? 300,
     );
     this.pickupRadiusMeters = Number(
-      config.get('PICKUP_RADIUS_METERS') ?? 1000,
+      config.get('PICKUP_RADIUS_METERS') ?? 3000,
     );
     this.maxFareFactor = Number(config.get('MAX_FARE_FACTOR') ?? 3);
     this.maxStopWaitMinutes = Number(config.get('MAX_STOP_WAIT_MINUTES') ?? 60);

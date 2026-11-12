@@ -28,7 +28,7 @@ function make(driverAt: { lat: number; lng: number } | null) {
   };
   const locations = { getLocation: vi.fn(async () => driverAt) };
   // A stop's radius stays tighter: only the pickup's is widened.
-  const settings = { arrivalRadiusMeters: 300, pickupRadiusMeters: 1000 };
+  const settings = { arrivalRadiusMeters: 300, pickupRadiusMeters: 3000 };
   const events = { emit: vi.fn() };
   const none = {} as never;
   const service = new RidesService(
@@ -62,8 +62,8 @@ describe('arriving at the pickup', () => {
   });
   afterEach(() => vi.useRealTimers());
 
-  it('lets the driver press Arrived from up to 1 km away', async () => {
-    const { service, prisma, events } = make(north(950));
+  it('lets the driver press Arrived from up to 3 km away', async () => {
+    const { service, prisma, events } = make(north(2950));
     await service.arrived(DRIVER, RIDE);
     expect(prisma.ride.updateMany).toHaveBeenCalledWith({
       where: { id: RIDE, driverId: DRIVER, status: 'accepted' },
@@ -81,10 +81,16 @@ describe('arriving at the pickup', () => {
     expect(prisma.ride.updateMany).toHaveBeenCalled();
   });
 
-  it('refuses from more than 1 km away, saying how far', async () => {
+  it('lets the driver who is 1.2 km away arrive (refused at 1 km before)', async () => {
     const { service, prisma } = make(north(1200));
+    await service.arrived(DRIVER, RIDE);
+    expect(prisma.ride.updateMany).toHaveBeenCalled();
+  });
+
+  it('refuses from more than 3 km away, saying how far', async () => {
+    const { service, prisma } = make(north(3200));
     await expect(service.arrived(DRIVER, RIDE)).rejects.toThrow(
-      /You are 1200 m from the pickup; get within 1000 m first/,
+      /You are 3200 m from the pickup; get within 3000 m first/,
     );
     expect(prisma.ride.updateMany).not.toHaveBeenCalled();
   });
